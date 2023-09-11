@@ -1,0 +1,147 @@
+@font-face {
+    font-family: 'Helvetica Now Display';
+    src: url('HelveticaNowDisplay-Light.eot');
+    src: local('Helvetica Now Display Light'), local('HelveticaNowDisplay-Light'),
+        url('HelveticaNowDisplay-Light.eot?#iefix') format('embedded-opentype'),
+        url('HelveticaNowDisplay-Light.woff2') format('woff2'),
+        url('HelveticaNowDisplay-Light.woff') format('woff'),
+        url('HelveticaNowDisplay-Light.ttf') format('truetype');
+    font-weight: 300;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Helvetica Now Display';
+    src: url('HelveticaNowDisplay-Bold.eot');
+    src: local('Helvetica Now Display Bold'), local('HelveticaNowDisplay-Bold'),
+        url('HelveticaNowDisplay-Bold.eot?#iefix') format('embedded-opentype'),
+        url('HelveticaNowDisplay-Bold.woff2') format('woff2'),
+        url('HelveticaNowDisplay-Bold.woff') format('woff'),
+        url('HelveticaNowDisplay-Bold.ttf') format('truetype');
+    font-weight: bold;
+    font-style: normal;
+}
+
+body {
+    font-family: "Helvetica Now Display";
+    font-size: medium;
+}
+
+#menu {
+    float: right;
+    margin-top: 30px;
+    margin-right: 20px;
+    text-align: right;
+    /* width: 30%; */
+    font-family: "Helvetica Now Display";
+}
+
+
+#menu ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+}
+
+
+#menu li a {
+    display: inline-block;
+    color: #002fa7;
+}
+
+a {
+    text-decoration: none;
+    position: relative;
+}
+
+#content {
+    margin-top: 15px;
+    float: left;
+    width: 900px;
+}
+
+#content h1,
+#content h2,
+#content h3 {
+    font-family: "Helvetica Now Display";
+    margin: 0;
+}
+
+#content h2 {
+    margin-top: 2em;
+}
+
+#content .byline,
+#content .byline a,
+#content .note {
+    font-size: 10px;
+    color: #aaa;
+}
+
+#content p,
+#content ul {
+    color: #333;
+    line-height: 18px;
+}
+
+#content sup.note {
+    display: inline-block;
+    margin-top: -5px;
+}
+
+#content p.notop {
+    margin-top: 0;
+}
+
+#content .thanks {
+    margin-top: 2em;
+    padding-top: 1em;
+    border-top: 1px solid #eee;
+    margin-bottom: 4em;
+    font-size: smaller;
+    color: #777;
+}
+
+#content .thanks a {
+    color: #777;
+}
+
+#content li {
+    margin-bottom: 0.7em;
+}
+
+#content a {
+    color: #002fa7;
+}
+
+a::before {
+    content: "";
+    position: absolute;
+    width: 0;
+    height: 2px;
+    bottom: 0;
+    left: 0;
+    background-color: #002fa7;
+    visibility: hidden;
+    transition: all 0.3s ease-in-out;
+}
+
+a:hover::before {
+    visibility: visible;
+    width: 100%;
+}
+
+.post+.post {
+    margin-top: 50px;
+}
+
+sup,
+sub {
+    vertical-align: baseline;
+    position: relative;
+    top: -0.4em;
+}
+
+sub {
+    top: 0.4em;
+}
