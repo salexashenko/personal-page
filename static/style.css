@@ -32,6 +32,8 @@ body {
     margin-top: 30px;
     margin-right: 20px;
     text-align: right;
+    position: sticky;
+    top: 0;
     /* width: 30%; */
     font-family: "Helvetica Now Display";
 }
@@ -55,9 +57,10 @@ a {
 }
 
 #content {
-    margin-top: 15px;
+    margin-top: 30px;
+    margin-left: 20px;
     float: left;
-    width: 900px;
+    width: 600px;
 }
 
 #content h1,
@@ -78,7 +81,10 @@ a {
     color: #aaa;
 }
 
-#content p,
+#content p {
+    margin-block-start: 0em;
+}
+
 #content ul {
     color: #333;
     line-height: 18px;
