@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talk to the Matrix</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: monospace;
+            color: #0f0;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #0f0;
+            transition: opacity 1s ease;
+        }
+        button {
+            background-color: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 8px 15px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+        }
+        button:hover {
+            background-color: #0f0;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button id="start-audio">Talk to the Matrix</button>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // Setup canvas
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Make canvas full screen
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Characters to display (mix of Latin and katakana for authentic Matrix look)
+        const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        
+        // Column settings
+        let fontSize = 14;
+        let columns; // number of columns
+        let drops = []; // array for drops
+        let baseSpeed = 50; // default speed in milliseconds
+        let speed = baseSpeed;
+        let baseDensity = 0.05; // default drop density
+        let density = baseDensity;
+        let colorMode = 'green';
+        let hueRotation = 0;
+        let thresholdReached = false;
+        
+        // Audio analysis variables
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let audioInitialized = false;
+        let audioStartButton = document.getElementById('start-audio');
+        let average = 0; // Define average at global scope
+        
+        // Threshold values for sound intensity
+        const VOLUME_THRESHOLD = 45; // Increased threshold to trigger dramatic effects only with music
+        const TALKING_THRESHOLD = 20; // Threshold for normal talking/ambient sounds
+        
+        // Initialize audio context and analyzer
+        async function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Get microphone access
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(stream);
+                
+                // Create analyser
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                
+                // Create data array for frequency data
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+                
+                audioInitialized = true;
+                audioStartButton.textContent = "Audio Reactive Mode Enabled";
+                audioStartButton.disabled = true;
+                
+                // Hide controls after a delay
+                setTimeout(() => {
+                    document.querySelector('.controls').style.opacity = '0';
+                    setTimeout(() => {
+                        document.querySelector('.controls').style.display = 'none';
+                    }, 1000);
+                }, 2000);
+                
+            } catch (error) {
+                console.error("Error accessing microphone:", error);
+                audioStartButton.textContent = "Microphone access denied";
+            }
+        }
+        
+        // Setup columns
+        function initMatrix() {
+            columns = Math.floor(canvas.width / fontSize);
+            drops = [];
+            
+            // Initialize drops for each column
+            for (let i = 0; i < columns; i++) {
+                // Start each drop at random position
+                drops[i] = Math.floor(Math.random() * -canvas.height / fontSize);
+            }
+        }
+        
+        // Process audio data and update animation parameters
+        function processAudio() {
+            if (!audioInitialized) return;
+            
+            // Get frequency data
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            average = sum / dataArray.length; // Update the global average
+            
+            // Check if threshold is reached (music or loud sound)
+            thresholdReached = average > VOLUME_THRESHOLD;
+            
+            // Apply subtle changes for low sounds
+            if (!thresholdReached) {
+                // Check if it's even talking or just ambient noise
+                const isTalking = average > TALKING_THRESHOLD;
+                
+                // Very subtle speed changes for talking - just a bit faster than baseline
+                // For ambient noise, maintain nearly default speed
+                speed = isTalking ? 
+                    baseSpeed - (Math.min(average - TALKING_THRESHOLD, 10) * 0.8) : // Minimal speed increase for talking
+                    baseSpeed - (average * 0.1); // Almost imperceptible for ambient noise
+                
+                // Keep density almost at baseline for all low sounds
+                density = baseDensity + (isTalking ? 0.005 : 0.001);
+                
+                // No font size change for low sounds
+                fontSize = 14;
+                
+                // Always stay in green mode for low sounds
+                colorMode = 'green';
+                
+                // Standard fade effect, very subtle increase for talking
+                ctx.fillStyle = `rgba(0, 0, 0, ${0.05 + (isTalking ? 0.01 : 0)})`;
+            } 
+            // Dramatic changes for music/loud sounds
+            else {
+                // Much faster for music
+                speed = baseSpeed - ((average / 255) * 40);
+                speed = Math.max(10, speed);
+                
+                // Higher density with volume
+                density = baseDensity + ((average / 255) * 0.15);
+                
+                // Calculate different frequency bands
+                const bassAvg = getAverageFrequency(0, 4);
+                const midAvg = getAverageFrequency(5, 20);
+                const trebleAvg = getAverageFrequency(21, 50);
+                
+                // Switch to rainbow mode with music
+                colorMode = 'rainbow';
+                
+                // Bass affects color rotation speed
+                const bassLevel = bassAvg / 255;
+                hueRotation += bassLevel * 5;
+                
+                // Mid frequencies affect fontSize more dramatically
+                fontSize = 14 + (midAvg / 255) * 10;
+                
+                // Treble affects fade rate
+                ctx.fillStyle = `rgba(0, 0, 0, ${0.05 + (trebleAvg / 255) * 0.1})`;
+            }
+        }
+        
+        // Helper to get average value in a range of frequency bins
+        function getAverageFrequency(startBin, endBin) {
+            let sum = 0;
+            for (let i = startBin; i <= endBin && i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            return sum / (endBin - startBin + 1);
+        }
+        
+        // Drawing function
+        function draw() {
+            // Process audio if enabled
+            if (audioInitialized) {
+                processAudio();
+            } else {
+                // Default background fade
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            }
+            
+            // Fill background for fade effect
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Set font
+            ctx.font = Math.floor(fontSize) + 'px monospace';
+            
+            // Loop through drops
+            for (let i = 0; i < drops.length; i++) {
+                // Select random character
+                const text = chars[Math.floor(Math.random() * chars.length)];
+                
+                // Determine color
+                if (audioInitialized) {
+                    // For audio reactive mode, get the frequency value for this column
+                    const freqIndex = Math.floor((i / columns) * dataArray.length);
+                    const freqValue = dataArray[freqIndex] || 0;
+                    
+                    if (thresholdReached) {
+                        // Dramatic coloring for music/loud sounds
+                        switch (colorMode) {
+                            case 'green':
+                                // Brighter green for louder frequencies
+                                const intensity = 100 + (freqValue / 2);
+                                ctx.fillStyle = drops[i] > 0 ? 
+                                    `rgb(0, ${intensity}, 0)` : 
+                                    `rgb(0, ${intensity/4}, 0)`;
+                                break;
+                            case 'rainbow':
+                                // Each column gets a hue based on its position and frequency
+                                const hue = (i * 5 + hueRotation + freqValue) % 360;
+                                const saturation = 80 + (freqValue / 255) * 20;
+                                ctx.fillStyle = drops[i] > 0 ? 
+                                    `hsl(${hue}, ${saturation}%, 50%)` : 
+                                    `hsl(${hue}, ${saturation}%, 20%)`;
+                                break;
+                        }
+                    } else {
+                        // Check if it's talking or just ambient noise
+                        const isTalking = average > TALKING_THRESHOLD;
+                        
+                        // Base green intensity - barely changes with ambient noise
+                        const baseIntensity = 30; // Dimmer base green
+                        
+                        // Lead characters are much brighter than trailing ones
+                        const leadBoost = drops[i] > 0 ? 40 : 0;
+                        
+                        // Subtle brightness boost only when talking - no change for ambient noise
+                        const soundBoost = isTalking ? 
+                            (freqValue / VOLUME_THRESHOLD) * 10 : 0;
+                            
+                        const intensity = baseIntensity + leadBoost + soundBoost;
+                        ctx.fillStyle = `rgb(0, ${Math.min(intensity, 255)}, 0)`;
+                    }
+                } else {
+                    // Standard coloring for non-audio mode
+                    ctx.fillStyle = drops[i] > 0 ? '#0f0' : '#020';
+                }
+                
+                // Draw the character
+                if (drops[i] > 0) {
+                    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                }
+                
+                // Move the drop down
+                drops[i]++;
+                
+                // Reset when drop reaches bottom or randomly for some columns
+                if (drops[i] * fontSize > canvas.height && Math.random() > 1 - density) {
+                    drops[i] = -1;
+                }
+            }
+            
+            // Call function again after delay
+            setTimeout(draw, speed);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initMatrix();
+        });
+        
+        // Audio start button
+        audioStartButton.addEventListener('click', initAudio);
+        
+        // Initialize and start
+        initMatrix();
+        draw();
+    </script>
+</body>
+</html>
