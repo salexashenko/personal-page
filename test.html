@@ -55,7 +55,7 @@
             font-weight: bold;
             text-anchor: middle;
             dominant-baseline: middle;
-            font-size: 20px;
+            /* No fixed font size here, will be set dynamically */
             fill: #FFFF00; /* Always yellow text as requested */
             text-shadow: 0 0 8px #FFFF00, 0 0 12px #FFFF00, 0 0 16px #FFFF00;
         }
@@ -382,9 +382,29 @@
                 const width = window.innerWidth * 1.2; // Extend width to cover the offset
                 const height = window.innerHeight;
                 
-                // Calculate triangle dimensions
-                const triangleSize = Math.min(width, height) / 6;
+                // Calculate triangle dimensions with mobile adjustment
+                const isMobile = window.innerWidth < 768;
+                const triangleSize = Math.min(width, height) / (isMobile ? 4 : 6); // Larger triangles on mobile
                 const triangleHeight = triangleSize * Math.sqrt(3) / 2;
+                
+                // Define a function to check if a triangle is in the center zone of the screen (for mobile)
+                const isInCenterZone = (x, y) => {
+                    if (!isMobile) return true; // Desktop always returns true
+                    
+                    // For mobile, define a center zone (middle 60% of screen width, middle 70% of height)
+                    const centerMarginX = window.innerWidth * 0.2; // 20% margin on left and right
+                    const centerMarginY = window.innerHeight * 0.15; // 15% margin on top and bottom
+                    
+                    // Adjust x for the offset since SVG is positioned at -20%
+                    const adjustedX = x - window.innerWidth * 0.2;
+                    
+                    return (
+                        adjustedX >= centerMarginX && 
+                        adjustedX <= window.innerWidth - centerMarginX &&
+                        y >= centerMarginY && 
+                        y <= window.innerHeight - centerMarginY
+                    );
+                };
                 
                 // Calculate the number of triangles needed
                 const cols = Math.ceil(width / (triangleSize / 2)) + 2;
@@ -441,8 +461,8 @@
                                 isEven: isEven
                             });
                             
-                            // If this is a dark triangle, add it to dark triangles array
-                            if (isDarkEnough(color)) {
+                            // If this is a dark triangle AND it's in the center zone (for mobile), add it to dark triangles array
+                            if (isDarkEnough(color) && isInCenterZone(x, y)) {
                                 darkTriangles.push({
                                     element: triangle,
                                     x: x,
@@ -463,12 +483,18 @@
                     const centerX = window.innerWidth / 2;
                     const centerY = window.innerHeight / 2;
                     
-                    // Define 4 quadrants
+                    // For mobile, use smaller quadrants to keep text more centered
+                    const quadrantSizeX = isMobile ? window.innerWidth * 0.3 : window.innerWidth / 2;
+                    const quadrantSizeY = isMobile ? window.innerHeight * 0.35 : window.innerHeight / 2;
+                    const quadrantStartX = centerX - quadrantSizeX;
+                    const quadrantStartY = centerY - quadrantSizeY;
+                    
+                    // Define 4 quadrants - for mobile, these will be smaller and centered
                     const quadrants = [
-                        {x: [0, centerX], y: [0, centerY]}, // Top left
-                        {x: [centerX, window.innerWidth], y: [0, centerY]}, // Top right
-                        {x: [0, centerX], y: [centerY, window.innerHeight]}, // Bottom left
-                        {x: [centerX, window.innerWidth], y: [centerY, window.innerHeight]} // Bottom right
+                        {x: [quadrantStartX, centerX], y: [quadrantStartY, centerY]}, // Top left
+                        {x: [centerX, quadrantStartX + 2*quadrantSizeX], y: [quadrantStartY, centerY]}, // Top right
+                        {x: [quadrantStartX, centerX], y: [centerY, quadrantStartY + 2*quadrantSizeY]}, // Bottom left
+                        {x: [centerX, quadrantStartX + 2*quadrantSizeX], y: [centerY, quadrantStartY + 2*quadrantSizeY]} // Bottom right
                     ];
                     
                     // Find a dark triangle for each quadrant
@@ -526,6 +552,12 @@
                         text.setAttribute('y', textY);
                         text.textContent = wordLink.word;
                         
+                        // Make font size responsive based on triangle size and device
+                        const fontSize = isMobile ? 
+                            Math.max(10, Math.min(15, triangleSize / 6)) : // Smaller on mobile
+                            Math.max(14, Math.min(20, triangleSize / 5)); // Original size on desktop
+                        text.style.fontSize = `${fontSize}px`;
+                        
                         // Add text to SVG
                         svg.appendChild(text);
                         
@@ -577,6 +609,12 @@
                         text.setAttribute('x', textX);
                         text.setAttribute('y', textY);
                         text.textContent = wordLink.word;
+                        
+                        // Make font size responsive based on triangle size and device
+                        const fontSize = isMobile ? 
+                            Math.max(10, Math.min(15, triangleSize / 6)) : // Smaller on mobile
+                            Math.max(14, Math.min(20, triangleSize / 5)); // Original size on desktop
+                        text.style.fontSize = `${fontSize}px`;
                         
                         // Add text to SVG
                         svg.appendChild(text);
@@ -674,11 +712,9 @@
                     if (textElements[textIndex]) {
                         const textElement = textElements[textIndex];
                         
-                        // Temporarily enlarge text
-                        const originalSize = textElement.style.fontSize || '20px';
-                        
-                        // Make text larger for click effect
-                        textElement.style.fontSize = '24px';
+                        // Make text larger for click effect - calculate based on current size
+                        const currentSize = parseFloat(window.getComputedStyle(textElement).fontSize);
+                        textElement.style.fontSize = `${currentSize * 1.2}px`;
                         textElement.style.textShadow = '0 0 10px #FFFF00, 0 0 15px #FFFF00, 0 0 20px #FFFF00, 0 0 30px #FFFF00';
                         
                         // Get the URL for navigation
