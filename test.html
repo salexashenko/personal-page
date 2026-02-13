@@ -3,1351 +3,596 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cyberpunk Triangle Lattice</title>
+    <title>Molecular DNA Repair Simulation</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap');
+
         body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            touch-action: manipulation;
-            background-color: #000B1E;
-            -webkit-tap-highlight-color: transparent;
-        }
-        
-        #container {
-            width: 100%;
-            height: 100%;
-            display: block;
-            background-color: #000B1E;
-            -webkit-tap-highlight-color: transparent;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        svg {
-            display: block;
-            width: 100%;
-            height: 100%;
-            background-color: #000B1E;
-            -webkit-tap-highlight-color: transparent;
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #010205;
+            font-family: 'Rajdhani', sans-serif; color: #ffffff;
             user-select: none;
+        }
+
+        #canvas-container {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;
+        }
+
+        /* --- Cinematic Overlays --- */
+        .vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, transparent 20%, rgba(1, 2, 5, 0.98) 100%);
+            pointer-events: none; z-index: 2;
+        }
+
+        .scanlines {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 1px, transparent 1px, transparent 2px);
+            pointer-events: none; z-index: 3; opacity: 0.6;
+        }
+
+        /* --- Loading Screen --- */
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #010205; z-index: 99; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; transition: opacity 1s ease-out;
+            letter-spacing: 4px; color: #00e5ff; font-weight: 600;
+        }
+        
+        .spinner {
+            width: 50px; height: 50px; border: 2px solid rgba(0, 229, 255, 0.2);
+            border-top: 2px solid #00e5ff; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+
+        /* --- Glassmorphism UI --- */
+        #hud-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 10; opacity: 0; transition: opacity 1.5s ease-in;
+        }
+
+        .panel {
             position: absolute;
-            left: -20%;
-            width: 120%;
+            background: 
+                linear-gradient(to right, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 0 0,
+                linear-gradient(to bottom, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 0 0,
+                linear-gradient(to left, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 100% 0,
+                linear-gradient(to bottom, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 100% 0,
+                linear-gradient(to right, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 0 100%,
+                linear-gradient(to top, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 0 100%,
+                linear-gradient(to left, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 100% 100%,
+                linear-gradient(to top, rgba(0, 229, 255, 0.8) 2px, transparent 2px) 100% 100%,
+                rgba(2, 6, 15, 0.55);
+            background-repeat: no-repeat;
+            background-size: 15px 15px, 15px 15px, 15px 15px, 15px 15px, 15px 15px, 15px 15px, 15px 15px, 15px 15px, 100% 100%;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 229, 255, 0.1);
+            border-radius: 4px;
+            padding: 25px 30px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 229, 255, 0.05);
         }
+
+        .bottom-left { bottom: 40px; left: 40px; width: 340px; }
+        .top-right { top: 40px; right: 40px; width: 320px; }
+
+        .title { font-size: 1.35rem; font-weight: 700; letter-spacing: 2px; margin: 0 0 5px; color: #fff; text-shadow: 0 0 12px rgba(0, 229, 255, 0.5); }
+        .subtitle { font-size: 0.75rem; font-weight: 600; letter-spacing: 1.5px; color: #00e5ff; margin-bottom: 20px; text-transform: uppercase; }
+        .divider { height: 1px; background: linear-gradient(90deg, rgba(0, 229, 255, 0.5), transparent); margin-bottom: 20px; }
         
-        polygon {
-            transition: fill 0.3s ease;
-            cursor: pointer;
-            stroke: #000B1E;
-            stroke-width: 0.8;
-            -webkit-tap-highlight-color: transparent;
-            user-select: none;
-            outline: none;
+        .info-row { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 12px; letter-spacing: 1px; font-weight: 600; }
+        .info-label { color: #8892b0; }
+
+        .status-ok { color: #00ffcc; text-shadow: 0 0 15px rgba(0, 255, 204, 0.7); }
+        .status-warn { color: #ff0055; text-shadow: 0 0 15px rgba(255, 0, 85, 0.9); }
+        .status-repair { color: #ffaa00; text-shadow: 0 0 15px rgba(255, 170, 0, 0.7); }
+
+        .progress-bar-bg { width: 100%; height: 3px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; margin-top: 25px; overflow: hidden; }
+        #progress-bar { height: 100%; width: 0%; background: #00e5ff; transition: width 0.1s linear; box-shadow: 0 0 12px #00e5ff; }
+
+        .log-text { font-size: 0.95rem; line-height: 1.6; color: #cbd5e1; font-weight: 500; transition: opacity 0.2s; }
+        .glitch-active { animation: glitch 0.2s linear infinite; color: #ff0055;}
+
+        .crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 120px; height: 120px; border: 1px solid rgba(0, 229, 255, 0.1); border-radius: 50%;
+            animation: spin 20s linear infinite;
         }
-        
-        text {
-            pointer-events: none;
-            user-select: none;
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-            text-anchor: middle;
-            dominant-baseline: middle;
-            /* No fixed font size here, will be set dynamically */
-            fill: #FFFF00; /* Always yellow text as requested */
-            text-shadow: 0 0 8px #FFFF00, 0 0 12px #FFFF00, 0 0 16px #FFFF00;
+        .crosshair::before { content: ''; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 2px; height: 15px; background: rgba(0, 229, 255, 0.8); }
+        .crosshair::after { content: ''; position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); width: 2px; height: 15px; background: rgba(0, 229, 255, 0.8); }
+        .crosshair-inner {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 40px; height: 40px; border: 1px dashed rgba(0, 229, 255, 0.3); border-radius: 50%;
+            animation: spin-reverse 10s linear infinite;
         }
-        
-        /* Style for triangles with links */
-        polygon[data-has-text="true"] {
-            cursor: pointer;
-            filter: drop-shadow(0 0 3px rgba(255, 255, 0, 0.5));
-        }
-        
-        /* Animation for triangle pulsing */
-        @keyframes trianglePulse {
-            0% { filter: brightness(1) drop-shadow(0 0 2px rgba(0, 255, 255, 0.5)); }
-            50% { filter: brightness(1.5) drop-shadow(0 0 5px rgba(0, 255, 255, 0.8)); }
-            100% { filter: brightness(1) drop-shadow(0 0 2px rgba(0, 255, 255, 0.5)); }
-        }
-        
-        /* Random pulse effect for some triangles */
-        polygon.pulse {
-            animation: trianglePulse 2s infinite ease-in-out;
-        }
-        
-        /* Flicker animation for glitched triangles */
-        @keyframes flicker {
-            0% { opacity: 1; }
-            10% { opacity: 0.8; }
-            20% { opacity: 1; }
-            40% { opacity: 0.6; }
-            42% { opacity: 1; }
-            44% { opacity: 0.8; }
-            46% { opacity: 1; }
-            60% { opacity: 0.4; }
-            80% { opacity: 1; }
-            97% { opacity: 0.8; }
-            100% { opacity: 1; }
-        }
-        
-        polygon.flicker {
-            animation: flicker 3s infinite;
-        }
-        
-        /* CRT Distortion Effect */
-        #container {
-            border-radius: 5% / 3%;
-            transform: perspective(800px) rotateX(2deg);
-            box-shadow: 0 0 30px rgba(0, 255, 0, 0.15);
-        }
-        
-        /* VHS scan lines effect */
-        .vhs-filter {
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: repeating-linear-gradient(
-                rgba(0, 0, 0, 0) 0px,
-                rgba(0, 255, 0, 0.03) 2px,
-                rgba(0, 0, 0, 0) 4px
-            );
-            mix-blend-mode: screen;
-            pointer-events: none;
-            z-index: 1000;
-        }
-        
-        /* Chromatic aberration */
-        svg {
-            position: relative;
-        }
-        
-        svg::before, svg::after {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            mix-blend-mode: screen;
-            pointer-events: none;
-        }
-        
-        svg::before {
-            background-color: rgba(255, 0, 0, 0.03);
-            transform: translate(-2px, 0);
-        }
-        
-        svg::after {
-            background-color: rgba(0, 0, 255, 0.03);
-            transform: translate(2px, 0);
-        }
-        
-        /* Animated neon borders for triangles */
-        @keyframes neonBorder {
-            0% { stroke: #00FFFF; stroke-opacity: 0.2; }
-            50% { stroke: #FF00FF; stroke-opacity: 0.8; }
-            100% { stroke: #00FFFF; stroke-opacity: 0.2; }
-        }
-        
-        polygon[data-has-text="true"] {
-            stroke-width: 1.5;
-            stroke-opacity: 0.5;
-            animation: neonBorder 4s infinite;
+
+        .watermark { position: absolute; bottom: 30px; right: 40px; font-size: 0.7rem; color: rgba(255, 255, 255, 0.3); letter-spacing: 2px; font-weight: 600; text-align: right;}
+        .controls-hint { position: absolute; bottom: 30px; width: 100%; text-align: center; font-size: 0.8rem; color: rgba(0, 229, 255, 0.6); letter-spacing: 3px; font-weight: 600; text-shadow: 0 0 10px rgba(0, 229, 255, 0.3); }
+
+        @keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+        @keyframes spin-reverse { 100% { transform: translate(-50%, -50%) rotate(-360deg); } }
+        @keyframes glitch {
+            0% { transform: translate(0) }
+            20% { transform: translate(-2px, 1px) }
+            40% { transform: translate(-1px, -1px) }
+            60% { transform: translate(2px, 1px) }
+            80% { transform: translate(1px, -1px) }
+            100% { transform: translate(0) }
         }
     </style>
+
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
 <body>
-    <div class="vhs-filter"></div>
-    <div id="container">
-        <svg id="lattice" xmlns="http://www.w3.org/2000/svg"></svg>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div>INITIALIZING SCENE...</div>
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Get the SVG element
-            const svg = document.getElementById('lattice');
-            
-            // Colors for the triangles - cyberpunk palette
-            // Separated into dark and light colors
-            const darkColors = [
-                '#120458', // Dark purple
-                '#000B1E', // Deep blue
-                '#251941', // Dark indigo
-                '#6E0DD0', // Deep purple
-                '#3A10C0', // Electric indigo
-            ];
-            
-            const lightColors = [
-                '#FF00FF', // Neon pink
-                '#FF00C1', // Magenta
-                '#9D00FF', // Neon purple
-                '#0080FF', // Bright blue
-                '#00FFFF', // Cyan
-                '#00FFCC', // Neon turquoise
-                '#39FF14', // Acid green
-                '#C9FB37', // Neon lime
-                '#FFFF00', // Neon yellow
-                '#FF5F1F', // Neon orange
-                '#FE0000'  // Bright red
-            ];
-            
-            // Combined colors for normal triangles
-            const allColors = [...darkColors, ...lightColors];
-            
-            // Just 4 words to display with corresponding URLs
-            const wordLinks = [
-                { word: 'HOPE', url: 'https://www.google.com' },
-                { word: 'DREAM', url: 'https://www.facebook.com' },
-                { word: 'PLAY', url: 'https://www.wikipedia.org' },
-                { word: 'LOVE', url: 'https://www.example.com' }
-            ];
-            
-            // For tracking combo clicks and patterns
-            let clickCounter = 0;
-            let lastClickTime = 0;
-            let clickPattern = [];
-            let glitchMode = false;
-            let glitchTimeout;
 
-            // Audio context and sounds
-            let audioContext;
-            let glitchSounds = [];
-            let clickSounds = [];
-            let backgroundAmbience;
+    <div id="canvas-container"></div>
+    <div class="vignette"></div>
+    <div class="scanlines"></div>
+    
+    <div id="hud-layer">
+        <div class="panel bottom-left">
+            <div class="title">DNA REPAIR MECHANISM</div>
+            <div class="subtitle">HOMOLOGY-DIRECTED RECOMBINATION</div>
+            <div class="divider"></div>
+            <div class="info-row">
+                <span class="info-label">TARGET LOCUS:</span>
+                <span>CHROMOSOME 7 / 140453</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">ENZYME COMPLEX:</span>
+                <span>DNA LIGASE IV</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">SYSTEM STATUS:</span>
+                <span id="status-text" class="status-ok">NOMINAL</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div id="progress-bar"></div>
+            </div>
+        </div>
+        
+        <div class="panel top-right">
+            <div class="title" style="font-size: 1.15rem;">TELEMETRY LOG</div>
+            <div class="divider"></div>
+            <div id="log-text" class="log-text">Monitoring genomic integrity. Double helix supercoiling structure is stable.</div>
+        </div>
 
-            // Track system corruption level
-            let corruptionLevel = 0;
-            const maxCorruption = 100;
+        <div class="crosshair"><div class="crosshair-inner"></div></div>
+        
+        <div class="controls-hint">[ DRAG TO ORBIT &bull; SCROLL TO ZOOM ]</div>
+        <div class="watermark">MAGNIFICATION: 25,000,000x<br>REAL-TIME EMULATION</div>
+    </div>
 
-            // Secret codes and their effects (cyberpunk easter eggs)
-            const secretCodes = [
-                { pattern: [3, 3, 3], effect: 'matrix' },     // Triple-click same triangle for matrix rain
-                { pattern: [1, 2, 3, 4], effect: 'override' }, // Sequential pattern reveals "SYSTEM OVERRIDE"
-                { pattern: [4, 2, 0], effect: 'corrupt' }     // Special pattern increases corruption
-            ];
-            
-            // Function to generate a random color from our palette
-            function getRandomColor() {
-                return allColors[Math.floor(Math.random() * allColors.length)];
-            }
-            
-            // Function to get a random dark color for text triangles
-            function getRandomDarkColor() {
-                return darkColors[Math.floor(Math.random() * darkColors.length)];
-            }
-            
-            // Function to determine if a color is dark enough for yellow text
-            function isDarkEnough(hexColor) {
-                // Convert hex to RGB
-                const r = parseInt(hexColor.substring(1, 3), 16);
-                const g = parseInt(hexColor.substring(3, 5), 16);
-                const b = parseInt(hexColor.substring(5, 7), 16);
-                
-                // Calculate brightness (simplified formula)
-                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-                
-                // Return true if the color is dark enough (brightness < 128)
-                return brightness < 128;
-            }
-            
-            // Function to lighten a color with a cyberpunk glow effect
-            function lightenColor(hex, percent) {
-                // Convert hex to RGB
-                let r = parseInt(hex.substring(1, 3), 16);
-                let g = parseInt(hex.substring(3, 5), 16);
-                let b = parseInt(hex.substring(5, 7), 16);
-                
-                // Add a cyberpunk glow by shifting colors toward neon
-                if (r > g && r > b) {
-                    // Reddish color - enhance red even more
-                    r = Math.min(255, Math.floor(r * (1 + percent / 80)));
-                    g = Math.min(255, Math.floor(g * (1 + percent / 130)));
-                    b = Math.min(255, b + 50);
-                } else if (g > r && g > b) {
-                    // Greenish color - enhance green
-                    g = Math.min(255, Math.floor(g * (1 + percent / 80)));
-                    r = Math.min(255, r + 30);
-                    b = Math.min(255, b + 70);
-                } else {
-                    // Bluish color - enhance blue and add some purple
-                    b = Math.min(255, Math.floor(b * (1 + percent / 80)));
-                    r = Math.min(255, r + 70);
-                    g = Math.min(255, g + 20);
-                }
-                
-                // Convert back to hex
-                return '#' + 
-                    r.toString(16).padStart(2, '0') +
-                    g.toString(16).padStart(2, '0') +
-                    b.toString(16).padStart(2, '0');
-            }
-            
-            // Initialize Audio
-            function initAudio() {
-                // Only create audio context after user interaction
-                if (!audioContext) {
-                    try {
-                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        
-                        // Create click sounds (different pitched blips)
-                        for (let i = 0; i < 5; i++) {
-                            createClickSound(200 + (i * 80));
-                        }
-                        
-                        // Create glitch sounds (noise bursts)
-                        for (let i = 0; i < 3; i++) {
-                            createGlitchSound();
-                        }
-                        
-                        // Create ambient background drone
-                        createAmbience();
-                        
-                        console.log("Audio system initialized");
-                    } catch (e) {
-                        console.warn("Web Audio API not supported:", e);
-                    }
-                }
-            }
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-            // Create different sounds
-            function createClickSound(frequency) {
-                if (!audioContext) return;
-                
-                const clickSound = {
-                    play: function(variation = 0) {
-                        const oscillator = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
-                        
-                        oscillator.type = ['sine', 'triangle', 'sawtooth'][Math.floor(Math.random() * 3)];
-                        oscillator.frequency.value = frequency + (variation * 20);
-                        
-                        gainNode.gain.value = 0.1;
-                        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
-                        
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        oscillator.start();
-                        oscillator.stop(audioContext.currentTime + 0.1);
-                    }
-                };
-                
-                clickSounds.push(clickSound);
-            }
+        // --- 1. CORE SCENE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x010205);
+        scene.fog = new THREE.FogExp2(0x010205, 0.015);
 
-            function createGlitchSound() {
-                if (!audioContext) return;
-                
-                const glitchSound = {
-                    play: function(intensity = 1) {
-                        const bufferSize = 4096;
-                        const noiseNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
-                        const gainNode = audioContext.createGain();
-                        const filterNode = audioContext.createBiquadFilter();
-                        
-                        filterNode.type = 'highpass';
-                        filterNode.frequency.value = 300 + (Math.random() * 500);
-                        
-                        gainNode.gain.value = 0.05 * intensity;
-                        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
-                        
-                        noiseNode.onaudioprocess = function(e) {
-                            const output = e.outputBuffer.getChannelData(0);
-                            for (let i = 0; i < bufferSize; i++) {
-                                output[i] = Math.random() * 2 - 1;
-                            }
-                        };
-                        
-                        noiseNode.connect(filterNode);
-                        filterNode.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        // Automatically disconnect after short time to prevent memory leaks
-                        setTimeout(() => {
-                            noiseNode.disconnect();
-                            filterNode.disconnect();
-                            gainNode.disconnect();
-                        }, 500);
-                    }
-                };
-                
-                glitchSounds.push(glitchSound);
-            }
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0, 40);
 
-            function createAmbience() {
-                if (!audioContext) return;
-                
-                const ambience = {
-                    oscillators: [],
-                    isPlaying: false,
-                    
-                    start: function() {
-                        if (this.isPlaying) return;
-                        this.isPlaying = true;
-                        
-                        // Create low drone sounds at different frequencies
-                        const baseFreqs = [55, 82.5, 110, 55 * 1.5];
-                        
-                        baseFreqs.forEach(freq => {
-                            const osc = audioContext.createOscillator();
-                            const gain = audioContext.createGain();
-                            const filter = audioContext.createBiquadFilter();
-                            
-                            osc.type = 'sawtooth';
-                            osc.frequency.value = freq;
-                            
-                            filter.type = 'lowpass';
-                            filter.frequency.value = 400;
-                            filter.Q.value = 10;
-                            
-                            gain.gain.value = 0.007; // Very quiet
-                            
-                            osc.connect(filter);
-                            filter.connect(gain);
-                            gain.connect(audioContext.destination);
-                            
-                            osc.start();
-                            this.oscillators.push({ osc, gain, filter });
-                            
-                            // Slight random modulation to create movement
-                            setInterval(() => {
-                                osc.frequency.value = freq * (0.99 + Math.random() * 0.02);
-                                filter.frequency.value = 400 * (0.95 + Math.random() * 0.1);
-                            }, 2000);
-                        });
-                    },
-                    
-                    stop: function() {
-                        if (!this.isPlaying) return;
-                        
-                        this.oscillators.forEach(({ osc, gain }) => {
-                            gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 1);
-                            setTimeout(() => osc.stop(), 1000);
-                        });
-                        
-                        this.oscillators = [];
-                        this.isPlaying = false;
-                    }
-                };
-                
-                backgroundAmbience = ambience;
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.04;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 1.0;
+        controls.maxDistance = 80;
+        controls.minDistance = 10;
+
+        // --- 2. POST PROCESSING (GLOW/BLOOM) ---
+        const renderScene = new RenderPass(scene, camera);
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.8, 0.5, 0.15);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        // --- 3. LIGHTING ---
+        scene.add(new THREE.AmbientLight(0x001133, 3.5));
+        
+        const dir1 = new THREE.DirectionalLight(0x00e5ff, 7);
+        dir1.position.set(15, 20, 15);
+        scene.add(dir1);
+
+        const dir2 = new THREE.DirectionalLight(0xff00aa, 6);
+        dir2.position.set(-15, -20, -15);
+        scene.add(dir2);
+
+        const flashLight = new THREE.PointLight(0xffffff, 0, 120);
+        scene.add(flashLight);
+
+        const worldGroup = new THREE.Group();
+        scene.add(worldGroup);
+
+        // --- 4. ATOM PHYSICS GENERATION (DNA HELIX) ---
+        const atomData = [];
+        const numRungs = 200;
+        const radius = 4.2;
+        const pitch = 0.55;
+        const twist = 0.34;
+        const offsetAngle = 2.4; 
+
+        const cBackbone1 = 0x00e5ff; 
+        const cBackbone2 = 0x0077ff; 
+        const cBases = [0xff0055, 0xffaa00, 0x00ff88, 0xaa00ff]; 
+
+        function createAtom(basePos, hexColor, rung, isBackbone) {
+            const offset = new THREE.Vector3(
+                (Math.random() - 0.5) * (isBackbone ? 1.2 : 0.6),
+                (Math.random() - 0.5) * (isBackbone ? 1.2 : 0.6),
+                (Math.random() - 0.5) * (isBackbone ? 1.2 : 0.6)
+            );
+            const stablePos = basePos.clone().add(offset);
+            
+            const isDamaged = Math.abs(rung - numRungs / 2) <= 12;
+            let brokenPos = stablePos.clone();
+            
+            if (isDamaged) {
+                const explodeDir = stablePos.clone();
+                explodeDir.y = 0; 
+                explodeDir.normalize();
+                explodeDir.y += (Math.random() - 0.5) * 2.5;
+                brokenPos.add(explodeDir.multiplyScalar(Math.random() * 12 + 6));
+                brokenPos.y += (Math.random() - 0.5) * 18;
             }
             
-            // Create the triangle lattice
-            function createLattice() {
-                // Clear existing content
-                svg.innerHTML = '';
-                
-                // Get the dimensions
-                const width = window.innerWidth * 1.2; // Extend width to cover the offset
-                const height = window.innerHeight;
-                
-                // Calculate triangle dimensions with mobile adjustment
-                const isMobile = window.innerWidth < 768;
-                const triangleSize = Math.min(width, height) / (isMobile ? 4 : 6); // Larger triangles on mobile
-                const triangleHeight = triangleSize * Math.sqrt(3) / 2;
-                
-                // Define a function to check if a triangle is in the center zone of the screen (for mobile)
-                const isInCenterZone = (x, y) => {
-                    if (!isMobile) return true; // Desktop always returns true
-                    
-                    // For mobile, define a center zone (middle 60% of screen width, middle 70% of height)
-                    const centerMarginX = window.innerWidth * 0.2; // 20% margin on left and right
-                    const centerMarginY = window.innerHeight * 0.15; // 15% margin on top and bottom
-                    
-                    // Adjust x for the offset since SVG is positioned at -20%
-                    const adjustedX = x - window.innerWidth * 0.2;
-                    
-                    return (
-                        adjustedX >= centerMarginX && 
-                        adjustedX <= window.innerWidth - centerMarginX &&
-                        y >= centerMarginY && 
-                        y <= window.innerHeight - centerMarginY
-                    );
-                };
-                
-                // Calculate the number of triangles needed
-                const cols = Math.ceil(width / (triangleSize / 2)) + 2;
-                const rows = Math.ceil(height / triangleHeight) + 2;
-                
-                // Create triangles without text
-                const allTriangles = [];
-                const darkTriangles = []; // Store only dark triangles for text
-                
-                for (let row = 0; row < rows; row++) {
-                    for (let col = 0; col < cols; col++) {
-                        // Calculate the position of the triangle
-                        const x = col * (triangleSize / 2);
-                        const y = row * triangleHeight;
-                        
-                        // Determine if this is an upward or downward pointing triangle
-                        const isEven = (row + col) % 2 === 0;
-                        
-                        // Create triangle points
-                        let points;
-                        if (isEven) {
-                            // Upward pointing triangle
-                            points = `${x},${y + triangleHeight} ${x + triangleSize},${y + triangleHeight} ${x + triangleSize/2},${y}`;
-                        } else {
-                            // Downward pointing triangle
-                            points = `${x},${y} ${x + triangleSize},${y} ${x + triangleSize/2},${y + triangleHeight}`;
-                        }
-                        
-                        // Create the triangle
-                        const triangle = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                        triangle.setAttribute('points', points);
-                        const color = getRandomColor();
-                        triangle.setAttribute('fill', color);
-                        triangle.setAttribute('data-original-color', color);
-                        triangle.setAttribute('data-has-text', 'false');
-                        
-                        // Add event listener
-                        triangle.addEventListener('pointerdown', handleTriangleClick);
-                        
-                        // Add the triangle to the SVG
-                        svg.appendChild(triangle);
-                        
-                        // Store valid triangles that are in the visible area
-                        // We need to account for the offset, so x should be at least 20% of screen width
-                        const offsetX = window.innerWidth * 0.2;
-                        if (x >= offsetX && x < offsetX + window.innerWidth && 
-                            y >= 0 && y < height) {
-                            
-                            // Add to all triangles
-                            allTriangles.push({
-                                element: triangle,
-                                x: x,
-                                y: y,
-                                isEven: isEven
-                            });
-                            
-                            // If this is a dark triangle AND it's in the center zone (for mobile), add it to dark triangles array
-                            if (isDarkEnough(color) && isInCenterZone(x, y)) {
-                                darkTriangles.push({
-                                    element: triangle,
-                                    x: x,
-                                    y: y,
-                                    isEven: isEven
-                                });
-                            }
-                        }
-                    }
-                }
-                
-                // If we have dark triangles in the visible area, add text to 4 of them
-                if (darkTriangles.length >= 4) {
-                    // Choose 4 well-distributed triangles from the dark ones
-                    const selectedTriangles = [];
-                    
-                    // We'll try to divide the screen into 4 quadrants and pick a dark triangle from each
-                    const centerX = window.innerWidth / 2;
-                    const centerY = window.innerHeight / 2;
-                    
-                    // For mobile, use smaller quadrants to keep text more centered
-                    const quadrantSizeX = isMobile ? window.innerWidth * 0.3 : window.innerWidth / 2;
-                    const quadrantSizeY = isMobile ? window.innerHeight * 0.35 : window.innerHeight / 2;
-                    const quadrantStartX = centerX - quadrantSizeX;
-                    const quadrantStartY = centerY - quadrantSizeY;
-                    
-                    // Define 4 quadrants - for mobile, these will be smaller and centered
-                    const quadrants = [
-                        {x: [quadrantStartX, centerX], y: [quadrantStartY, centerY]}, // Top left
-                        {x: [centerX, quadrantStartX + 2*quadrantSizeX], y: [quadrantStartY, centerY]}, // Top right
-                        {x: [quadrantStartX, centerX], y: [centerY, quadrantStartY + 2*quadrantSizeY]}, // Bottom left
-                        {x: [centerX, quadrantStartX + 2*quadrantSizeX], y: [centerY, quadrantStartY + 2*quadrantSizeY]} // Bottom right
-                    ];
-                    
-                    // Find a dark triangle for each quadrant
-                    for (let i = 0; i < 4; i++) {
-                        const quadrant = quadrants[i];
-                        const offsetX = window.innerWidth * 0.2; // Account for the SVG offset
-                        
-                        // Find triangles in this quadrant
-                        const quadrantTriangles = darkTriangles.filter(t => 
-                            t.x - offsetX >= quadrant.x[0] && 
-                            t.x - offsetX < quadrant.x[1] && 
-                            t.y >= quadrant.y[0] && 
-                            t.y < quadrant.y[1]
-                        );
-                        
-                        // If we found triangles in this quadrant, pick one randomly
-                        if (quadrantTriangles.length > 0) {
-                            const randomIndex = Math.floor(Math.random() * quadrantTriangles.length);
-                            selectedTriangles.push(quadrantTriangles[randomIndex]);
-                        } else {
-                            // If no triangles in this quadrant, pick a random dark triangle
-                            const randomIndex = Math.floor(Math.random() * darkTriangles.length);
-                            selectedTriangles.push(darkTriangles[randomIndex]);
-                        }
-                    }
-                    
-                    // Add words to the selected triangles
-                    selectedTriangles.forEach((triangle, i) => {
-                        const wordLink = wordLinks[i % wordLinks.length];
-                        
-                        // Ensure the triangle is dark enough for yellow text
-                        // If it's not already dark, force it to be dark
-                        const currentColor = triangle.element.getAttribute('fill');
-                        if (!isDarkEnough(currentColor)) {
-                            const darkColor = getRandomDarkColor();
-                            triangle.element.setAttribute('fill', darkColor);
-                            triangle.element.setAttribute('data-original-color', darkColor);
-                        }
-                        
-                        // Calculate text position
-                        let textX, textY;
-                        if (triangle.isEven) {
-                            // Upward pointing triangle
-                            textX = triangle.x + triangleSize/2;
-                            textY = triangle.y + triangleHeight - (triangleHeight/3);
-                        } else {
-                            // Downward pointing triangle
-                            textX = triangle.x + triangleSize/2;
-                            textY = triangle.y + triangleHeight/3;
-                        }
-                        
-                        // Create text element
-                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                        text.setAttribute('x', textX);
-                        text.setAttribute('y', textY);
-                        text.textContent = wordLink.word;
-                        
-                        // Make font size responsive based on triangle size and device
-                        const fontSize = isMobile ? 
-                            Math.max(10, Math.min(15, triangleSize / 6)) : // Smaller on mobile
-                            Math.max(14, Math.min(20, triangleSize / 5)); // Original size on desktop
-                        text.style.fontSize = `${fontSize}px`;
-                        
-                        // Add text to SVG
-                        svg.appendChild(text);
-                        
-                        // Link text to triangle
-                        triangle.element.setAttribute('data-has-text', 'true');
-                        triangle.element.setAttribute('data-text-index', i);
-                        triangle.element.setAttribute('data-url', wordLink.url);
-                        
-                        // Make the triangle cursor look like a link
-                        triangle.element.style.cursor = 'pointer';
-                    });
-                } else if (allTriangles.length > 0) {
-                    // If not enough dark triangles, force 4 random triangles to be dark
-                    const totalTriangles = allTriangles.length;
-                    const selectedIndices = [];
-                    
-                    // Choose roughly evenly spaced triangles
-                    for (let i = 0; i < 4; i++) {
-                        const index = Math.floor((totalTriangles / 5) * (i + 1));
-                        if (index < totalTriangles) {
-                            selectedIndices.push(index);
-                        }
-                    }
-                    
-                    // Add words to the selected triangles
-                    selectedIndices.forEach((index, i) => {
-                        const triangle = allTriangles[index];
-                        const wordLink = wordLinks[i % wordLinks.length];
-                        
-                        // Force the triangle to be dark
-                        const darkColor = getRandomDarkColor();
-                        triangle.element.setAttribute('fill', darkColor);
-                        triangle.element.setAttribute('data-original-color', darkColor);
-                        
-                        // Calculate text position
-                        let textX, textY;
-                        if (triangle.isEven) {
-                            // Upward pointing triangle
-                            textX = triangle.x + triangleSize/2;
-                            textY = triangle.y + triangleHeight - (triangleHeight/3);
-                        } else {
-                            // Downward pointing triangle
-                            textX = triangle.x + triangleSize/2;
-                            textY = triangle.y + triangleHeight/3;
-                        }
-                        
-                        // Create text element
-                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                        text.setAttribute('x', textX);
-                        text.setAttribute('y', textY);
-                        text.textContent = wordLink.word;
-                        
-                        // Make font size responsive based on triangle size and device
-                        const fontSize = isMobile ? 
-                            Math.max(10, Math.min(15, triangleSize / 6)) : // Smaller on mobile
-                            Math.max(14, Math.min(20, triangleSize / 5)); // Original size on desktop
-                        text.style.fontSize = `${fontSize}px`;
-                        
-                        // Add text to SVG
-                        svg.appendChild(text);
-                        
-                        // Link text to triangle
-                        triangle.element.setAttribute('data-has-text', 'true');
-                        triangle.element.setAttribute('data-text-index', i);
-                        triangle.element.setAttribute('data-url', wordLink.url);
-                        
-                        // Make the triangle cursor look like a link
-                        triangle.element.style.cursor = 'pointer';
-                    });
-                }
-                
-                // Add random visual effects to some triangles
-                addRandomEffects();
+            return {
+                stablePos, brokenPos,
+                currentPos: stablePos.clone(),
+                velocity: new THREE.Vector3(),
+                color: hexColor,
+                currentColorObj: new THREE.Color(hexColor),
+                rung, isDamaged, isBackbone,
+                scale: Math.random() * 0.35 + 0.15,
+                tempTarget: new THREE.Vector3() 
+            };
+        }
+
+        for (let i = 0; i < numRungs; i++) {
+            const y = (i - numRungs / 2) * pitch;
+            const theta = i * twist;
+            
+            const p1 = new THREE.Vector3(Math.cos(theta) * radius, y, Math.sin(theta) * radius);
+            const p2 = new THREE.Vector3(Math.cos(theta + offsetAngle) * radius, y, Math.sin(theta + offsetAngle) * radius);
+            
+            for(let j=0; j<16; j++) atomData.push(createAtom(p1, cBackbone1, i, true));
+            for(let j=0; j<16; j++) atomData.push(createAtom(p2, cBackbone2, i, true));
+            
+            const isAT = Math.random() > 0.5;
+            const col1 = isAT ? cBases[0] : cBases[2];
+            const col2 = isAT ? cBases[1] : cBases[3];
+            
+            const steps = 18;
+            for(let j=1; j<steps; j++) {
+                const t = j / steps;
+                const p = p1.clone().lerp(p2, t);
+                const col = t < 0.5 ? col1 : col2;
+                atomData.push(createAtom(p, col, i, false));
             }
-            
-            // Function to add random pulsing and flickering effects
-            function addRandomEffects() {
-                const allTriangles = Array.from(svg.querySelectorAll('polygon'));
-                
-                // Add pulse effect to some random triangles
-                for (let i = 0; i < Math.min(allTriangles.length * 0.05, 20); i++) {
-                    const randomIndex = Math.floor(Math.random() * allTriangles.length);
-                    const triangle = allTriangles[randomIndex];
-                    
-                    // Skip text triangles
-                    if (triangle.getAttribute('data-has-text') === 'true') continue;
-                    
-                    triangle.classList.add('pulse');
-                    
-                    // Set a random animation delay
-                    triangle.style.animationDelay = `${Math.random() * 3}s`;
-                }
-                
-                // Add flicker effect to some random triangles
-                for (let i = 0; i < Math.min(allTriangles.length * 0.03, 10); i++) {
-                    const randomIndex = Math.floor(Math.random() * allTriangles.length);
-                    const triangle = allTriangles[randomIndex];
-                    
-                    // Skip text triangles
-                    if (triangle.getAttribute('data-has-text') === 'true') continue;
-                    
-                    triangle.classList.add('flicker');
-                    
-                    // Set a random animation delay
-                    triangle.style.animationDelay = `${Math.random() * 5}s`;
-                }
-            }
-            
-            // Function to handle triangle clicks
-            function handleTriangleClick(event) {
-                // Initialize audio on first click
-                if (!audioContext) {
-                    initAudio();
-                    backgroundAmbience.start();
-                }
-                
-                // Prevent any default behavior
-                event.preventDefault();
-                event.stopPropagation();
-                
-                const triangle = event.target;
-                const originalColor = triangle.getAttribute('data-original-color');
-                
-                // Play click sound
-                const soundIndex = Math.floor(Math.random() * clickSounds.length);
-                if (clickSounds[soundIndex]) {
-                    clickSounds[soundIndex].play(Math.floor(Math.random() * 5));
-                }
-                
-                // Flash effect by changing the fill color
-                const flashColor = lightenColor(originalColor, 80);
-                triangle.setAttribute('fill', flashColor);
-                
-                // Track click pattern (store triangle index in pattern)
-                const allTriangles = Array.from(svg.querySelectorAll('polygon'));
-                const triangleIndex = allTriangles.indexOf(triangle);
-                clickPattern.push(triangleIndex % 5); // Simplify to 5 possible values
-                
-                // Only keep the last 5 clicks in the pattern
-                if (clickPattern.length > 5) {
-                    clickPattern.shift();
-                }
-                
-                // Check for secret patterns
-                checkSecretPatterns();
-                
-                // Check if this triangle has text
-                if (triangle.getAttribute('data-has-text') === 'true') {
-                    const textIndex = parseInt(triangle.getAttribute('data-text-index'));
-                    const textElements = Array.from(svg.querySelectorAll('text'));
-                    
-                    if (textElements[textIndex]) {
-                        const textElement = textElements[textIndex];
-                        
-                        // Make text larger for click effect - calculate based on current size
-                        const currentSize = parseFloat(window.getComputedStyle(textElement).fontSize);
-                        textElement.style.fontSize = `${currentSize * 1.2}px`;
-                        textElement.style.textShadow = '0 0 10px #FFFF00, 0 0 15px #FFFF00, 0 0 20px #FFFF00, 0 0 30px #FFFF00';
-                        
-                        // Get the URL for navigation
-                        const url = triangle.getAttribute('data-url');
-                        
-                        // Navigate after a short delay to show the visual feedback
-                        setTimeout(() => {
-                            window.location.href = url;
-                        }, 300);
-                    }
-                } else {
-                    // Track click timing for combos
-                    const now = Date.now();
-                    if (now - lastClickTime < 500) {
-                        clickCounter++;
-                        
-                        // Combo effects based on quick successive clicks
-                        if (clickCounter >= 3) {
-                            triggerGlitchEffect();
-                            
-                            // Play glitch sound
-                            if (glitchSounds.length > 0) {
-                                const glitchIndex = Math.floor(Math.random() * glitchSounds.length);
-                                glitchSounds[glitchIndex].play(clickCounter / 3);
-                            }
-                            
-                            // Reset counter but keep momentum for combos
-                            clickCounter = 1;
-                        }
-                    } else {
-                        clickCounter = 1;
-                    }
-                    lastClickTime = now;
-                    
-                    // Random chance for special events on non-text triangles
-                    const randomEvent = Math.random();
-                    
-                    if (randomEvent < 0.05) {
-                        // 5% chance of corruption increase
-                        increaseCorruption(5 + Math.floor(Math.random() * 10));
-                    } else if (randomEvent < 0.15) {
-                        // 10% chance of mini-glitch
-                        triggerMiniGlitch(triangle);
-                    } else if (randomEvent < 0.18) {
-                        // 3% chance of revealing hidden message
-                        revealHiddenMessage(triangle);
-                    }
-                    
-                    // For triangles without text, revert the color after animation
-                    setTimeout(() => {
-                        triangle.setAttribute('fill', originalColor);
-                    }, 500);
-                }
-                
-                return false;
-            }
-            
-            // Function to check for secret patterns
-            function checkSecretPatterns() {
-                // Don't check if pattern is too short
-                if (clickPattern.length < 3) return;
-                
-                // Check each secret code
-                secretCodes.forEach(code => {
-                    // Check if the end of our click pattern matches the secret code
-                    const patternToCheck = clickPattern.slice(-code.pattern.length);
-                    const isMatch = patternToCheck.every((val, idx) => val === code.pattern[idx]);
-                    
-                    if (isMatch) {
-                        triggerSecretEffect(code.effect);
-                        
-                        // Reset pattern after triggering
-                        clickPattern = [];
-                    }
-                });
-            }
-            
-            // Function to trigger special effects based on secret patterns
-            function triggerSecretEffect(effect) {
-                switch (effect) {
-                    case 'matrix':
-                        createMatrixEffect();
-                        break;
-                    case 'override':
-                        showSystemMessage('SYSTEM OVERRIDE ACTIVATED', '#39FF14');
-                        // Reveal all hidden messages
-                        const allTriangles = Array.from(svg.querySelectorAll('polygon'));
-                        for (let i = 0; i < 20; i++) {
-                            setTimeout(() => {
-                                const randomTriangle = allTriangles[Math.floor(Math.random() * allTriangles.length)];
-                                if (randomTriangle.getAttribute('data-has-text') !== 'true') {
-                                    revealHiddenMessage(randomTriangle);
-                                }
-                            }, i * 100);
-                        }
-                        break;
-                    case 'corrupt':
-                        showSystemMessage('INITIATING SYSTEM CORRUPTION', '#FF0000');
-                        increaseCorruption(20);
-                        break;
-                }
-            }
-            
-            // Function to trigger glitch effect
-            function triggerGlitchEffect() {
-                // Already in glitch mode, intensify it
-                if (glitchMode) {
-                    const allTriangles = Array.from(svg.querySelectorAll('polygon'));
-                    
-                    // More aggressive color shifts
-                    for (let i = 0; i < 20; i++) {
-                        const randomIndex = Math.floor(Math.random() * allTriangles.length);
-                        const triangle = allTriangles[randomIndex];
-                        
-                        // Skip text triangles
-                        if (triangle.getAttribute('data-has-text') === 'true') continue;
-                        
-                        // Shift to a random neon color
-                        setTimeout(() => {
-                            const originalColor = triangle.getAttribute('data-original-color');
-                            triangle.setAttribute('fill', lightColors[Math.floor(Math.random() * lightColors.length)]);
-                            
-                            // Revert after random time
-                            setTimeout(() => {
-                                triangle.setAttribute('fill', originalColor);
-                            }, 100 + Math.random() * 500);
-                        }, Math.random() * 300);
-                    }
-                    
-                    // Add screen shake
-                    const container = document.getElementById('container');
-                    container.style.transform = `translate(${Math.random() * 10 - 5}px, ${Math.random() * 10 - 5}px)`;
-                    setTimeout(() => {
-                        container.style.transform = 'translate(0, 0)';
-                    }, 200);
-                    
-                    return;
-                }
-                
-                // Enter glitch mode
-                glitchMode = true;
-                
-                // Create glitch overlay if it doesn't exist
-                let glitchOverlay = document.getElementById('glitch-overlay');
-                if (!glitchOverlay) {
-                    glitchOverlay = document.createElement('div');
-                    glitchOverlay.id = 'glitch-overlay';
-                    glitchOverlay.style.position = 'fixed';
-                    glitchOverlay.style.top = '0';
-                    glitchOverlay.style.left = '0';
-                    glitchOverlay.style.width = '100%';
-                    glitchOverlay.style.height = '100%';
-                    glitchOverlay.style.pointerEvents = 'none';
-                    glitchOverlay.style.zIndex = '1000';
-                    glitchOverlay.style.mixBlendMode = 'screen';
-                    glitchOverlay.style.background = 'transparent';
-                    document.body.appendChild(glitchOverlay);
-                }
-                
-                // Display system message
-                showSystemMessage('SYSTEM GLITCH DETECTED', '#FF00FF');
-                
-                // Apply visual glitches to random triangles
-                const allTriangles = Array.from(svg.querySelectorAll('polygon'));
-                
-                // Shuffle some triangle colors
-                for (let i = 0; i < 10; i++) {
-                    const randomIndex = Math.floor(Math.random() * allTriangles.length);
-                    const triangle = allTriangles[randomIndex];
-                    
-                    // Skip text triangles
-                    if (triangle.getAttribute('data-has-text') === 'true') continue;
-                    
-                    setTimeout(() => {
-                        const originalColor = triangle.getAttribute('data-original-color');
-                        triangle.setAttribute('fill', lightColors[Math.floor(Math.random() * lightColors.length)]);
-                        
-                        // Revert after random time
-                        setTimeout(() => {
-                            triangle.setAttribute('fill', originalColor);
-                        }, 200 + Math.random() * 800);
-                    }, Math.random() * 500);
-                }
-                
-                // Add scan lines effect
-                const scanLines = document.createElement('div');
-                scanLines.style.position = 'fixed';
-                scanLines.style.top = '0';
-                scanLines.style.left = '0';
-                scanLines.style.width = '100%';
-                scanLines.style.height = '100%';
-                scanLines.style.backgroundImage = 'linear-gradient(transparent 50%, rgba(0, 255, 255, 0.1) 50%)';
-                scanLines.style.backgroundSize = '100% 4px';
-                scanLines.style.pointerEvents = 'none';
-                scanLines.style.zIndex = '999';
-                scanLines.style.opacity = '0.7';
-                glitchOverlay.appendChild(scanLines);
-                
-                // Create color shift effect
-                const colorShift = document.createElement('div');
-                colorShift.style.position = 'fixed';
-                colorShift.style.top = '0';
-                colorShift.style.left = '0';
-                colorShift.style.width = '100%';
-                colorShift.style.height = '100%';
-                colorShift.style.background = 'linear-gradient(45deg, rgba(255,0,255,0.1), rgba(0,255,255,0.1))';
-                colorShift.style.pointerEvents = 'none';
-                colorShift.style.zIndex = '998';
-                colorShift.style.mixBlendMode = 'color-dodge';
-                glitchOverlay.appendChild(colorShift);
-                
-                // Animate the overlay with CSS animations
-                glitchOverlay.style.animation = 'glitchEffect 0.5s infinite';
-                
-                // Add the CSS animation
-                const styleSheet = document.createElement('style');
-                styleSheet.textContent = `
-                    @keyframes glitchEffect {
-                        0% { transform: translate(0); filter: hue-rotate(0deg); }
-                        10% { transform: translate(-5px, 2px); filter: hue-rotate(30deg); }
-                        20% { transform: translate(5px, -2px); filter: hue-rotate(0deg); }
-                        30% { transform: translate(0); filter: hue-rotate(-30deg); }
-                        40% { transform: translate(2px, 5px); filter: hue-rotate(0deg); }
-                        50% { transform: translate(-2px, -5px); filter: hue-rotate(50deg); }
-                        60% { transform: translate(0); filter: hue-rotate(0deg); }
-                        70% { transform: translate(4px, 2px); filter: hue-rotate(-50deg); }
-                        80% { transform: translate(-4px, -2px); filter: hue-rotate(0deg); }
-                        90% { transform: translate(0); filter: hue-rotate(30deg); }
-                        100% { transform: translate(0); filter: hue-rotate(0deg); }
-                    }
-                `;
-                document.head.appendChild(styleSheet);
-                
-                // Clear glitch mode after a few seconds
-                clearTimeout(glitchTimeout);
-                glitchTimeout = setTimeout(() => {
-                    glitchMode = false;
-                    glitchOverlay.style.animation = '';
-                    glitchOverlay.innerHTML = '';
-                    glitchOverlay.style.background = 'transparent';
-                    
-                    // Maybe remove the entire overlay
-                    if (Math.random() < 0.7) {
-                        glitchOverlay.remove();
-                    }
-                }, 3000);
-            }
-            
-            // Function to trigger mini glitch effect on a triangle
-            function triggerMiniGlitch(triangle) {
-                // Create a small distortion on a single triangle
-                const originalPoints = triangle.getAttribute('points');
-                const points = originalPoints.split(' ');
-                
-                // Distort the points slightly
-                const distortedPoints = points.map(point => {
-                    const [x, y] = point.split(',');
-                    const newX = parseFloat(x) + (Math.random() * 10 - 5);
-                    const newY = parseFloat(y) + (Math.random() * 10 - 5);
-                    return `${newX},${newY}`;
-                }).join(' ');
-                
-                // Apply distortion
-                triangle.setAttribute('points', distortedPoints);
-                
-                // Play a quiet glitch sound
-                if (glitchSounds.length > 0) {
-                    const glitchIndex = Math.floor(Math.random() * glitchSounds.length);
-                    glitchSounds[glitchIndex].play(0.2);
-                }
-                
-                // Revert after a short delay
-                setTimeout(() => {
-                    triangle.setAttribute('points', originalPoints);
-                }, 300);
-            }
-            
-            // Function to reveal hidden message in a triangle
-            function revealHiddenMessage(triangle) {
-                // Create an element for the message
-                const messageElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                
-                // Position the message near the triangle
-                const trianglePoints = triangle.getAttribute('points').split(' ');
-                const pointsArray = trianglePoints.map(point => {
-                    const [x, y] = point.split(',');
-                    return { x: parseFloat(x), y: parseFloat(y) };
-                });
-                
-                // Calculate center of the triangle
-                const centerX = (pointsArray[0].x + pointsArray[1].x + pointsArray[2].x) / 3;
-                const centerY = (pointsArray[0].y + pointsArray[1].y + pointsArray[2].y) / 3;
-                
-                // Position the message
-                messageElement.setAttribute('x', centerX);
-                messageElement.setAttribute('y', centerY);
-                
-                // Style the message
-                messageElement.style.fill = '#00FFFF'; // Cyan color
-                messageElement.style.fontSize = '10px';
-                messageElement.style.fontFamily = 'monospace';
-                messageElement.style.textAnchor = 'middle';
-                messageElement.style.dominantBaseline = 'middle';
-                messageElement.style.opacity = '0';
-                messageElement.style.transition = 'opacity 0.3s ease';
-                
-                // Choose a random cyberpunk message
-                const messages = [
-                    'HACK THE PLANET',
-                    'NO FUTURE',
-                    'NEURAL LINK',
-                    'DATA BREACH',
-                    'GHOST IN THE SHELL',
-                    'BLACKOUT',
-                    'NETRUNNER',
-                    'CYBERSPACE',
-                    'ENCRYPTED',
-                    'GLITCH',
-                    '404 NOT FOUND',
-                    'OVERRIDE',
-                    'ACCESS GRANTED'
-                ];
-                messageElement.textContent = messages[Math.floor(Math.random() * messages.length)];
-                
-                // Add to SVG
-                svg.appendChild(messageElement);
-                
-                // Fade in message
-                setTimeout(() => {
-                    messageElement.style.opacity = '1';
-                }, 50);
-                
-                // Make it disappear after a delay
-                setTimeout(() => {
-                    messageElement.style.opacity = '0';
-                    setTimeout(() => {
-                        messageElement.remove();
-                    }, 300);
-                }, 1500);
-            }
-            
-            // Function to increase system corruption
-            function increaseCorruption(amount) {
-                corruptionLevel = Math.min(maxCorruption, corruptionLevel + amount);
-                
-                // Apply visual corruption effects based on corruption level
-                if (corruptionLevel > 30) {
-                    // Minor corruption (visual artifacts)
-                    const allTriangles = Array.from(svg.querySelectorAll('polygon'));
-                    
-                    // Corrupt a few random triangles
-                    const corruptCount = Math.floor(corruptionLevel / 10);
-                    for (let i = 0; i < corruptCount; i++) {
-                        const randomIndex = Math.floor(Math.random() * allTriangles.length);
-                        const triangle = allTriangles[randomIndex];
-                        
-                        // Skip text triangles
-                        if (triangle.getAttribute('data-has-text') === 'true') continue;
-                        
-                        // Choose corruption effect: color shift, distortion, or both
-                        const effect = Math.floor(Math.random() * 3);
-                        
-                        if (effect === 0 || effect === 2) {
-                            // Color shift
-                            const corruptColor = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
-                            triangle.setAttribute('fill', corruptColor);
-                        }
-                        
-                        if (effect === 1 || effect === 2) {
-                            // Shape distortion
-                            const originalPoints = triangle.getAttribute('points');
-                            const points = originalPoints.split(' ');
-                            
-                            // Distort more aggressively
-                            const distortedPoints = points.map(point => {
-                                const [x, y] = point.split(',');
-                                const distortFactor = corruptionLevel / 20;
-                                const newX = parseFloat(x) + (Math.random() * 20 - 10) * distortFactor;
-                                const newY = parseFloat(y) + (Math.random() * 20 - 10) * distortFactor;
-                                return `${newX},${newY}`;
-                            }).join(' ');
-                            
-                            triangle.setAttribute('points', distortedPoints);
-                        }
-                    }
-                }
-                
-                if (corruptionLevel > 60) {
-                    // Major corruption (system messages and glitches)
-                    showSystemMessage('CORRUPTION DETECTED: ' + corruptionLevel + '%', '#FF0000');
-                    
-                    if (Math.random() < 0.3) {
-                        triggerGlitchEffect();
-                    }
-                }
-                
-                if (corruptionLevel >= maxCorruption) {
-                    // Total system failure
-                    showSystemMessage('CRITICAL SYSTEM FAILURE', '#FF0000');
-                    triggerGlitchEffect();
-                    
-                    // Play all glitch sounds
-                    glitchSounds.forEach(sound => sound.play(3));
-                    
-                    // Reset corruption after dramatic effect
-                    setTimeout(() => {
-                        corruptionLevel = 0;
-                        location.reload(); // Reload page for dramatic effect
-                    }, 3000);
-                }
-            }
-            
-            // Function to show system messages
-            function showSystemMessage(message, color = '#00FFFF') {
-                // Create system message overlay
-                let messageOverlay = document.getElementById('system-message');
-                
-                if (!messageOverlay) {
-                    messageOverlay = document.createElement('div');
-                    messageOverlay.id = 'system-message';
-                    messageOverlay.style.position = 'fixed';
-                    messageOverlay.style.top = '50%';
-                    messageOverlay.style.left = '50%';
-                    messageOverlay.style.transform = 'translate(-50%, -50%)';
-                    messageOverlay.style.padding = '20px';
-                    messageOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-                    messageOverlay.style.border = `2px solid ${color}`;
-                    messageOverlay.style.color = color;
-                    messageOverlay.style.fontFamily = 'monospace';
-                    messageOverlay.style.fontSize = '24px';
-                    messageOverlay.style.fontWeight = 'bold';
-                    messageOverlay.style.textAlign = 'center';
-                    messageOverlay.style.zIndex = '1001';
-                    messageOverlay.style.boxShadow = `0 0 20px ${color}`;
-                    messageOverlay.style.textShadow = `0 0 5px ${color}`;
-                    messageOverlay.style.pointerEvents = 'none';
-                    messageOverlay.style.opacity = '0';
-                    messageOverlay.style.transition = 'opacity 0.2s ease';
-                    document.body.appendChild(messageOverlay);
-                } else {
-                    // Update existing message style
-                    messageOverlay.style.border = `2px solid ${color}`;
-                    messageOverlay.style.color = color;
-                    messageOverlay.style.boxShadow = `0 0 20px ${color}`;
-                    messageOverlay.style.textShadow = `0 0 5px ${color}`;
-                }
-                
-                // Set message content
-                messageOverlay.textContent = message;
-                
-                // Show message
-                setTimeout(() => {
-                    messageOverlay.style.opacity = '1';
-                }, 50);
-                
-                // Hide message after delay
-                setTimeout(() => {
-                    messageOverlay.style.opacity = '0';
-                    setTimeout(() => {
-                        messageOverlay.remove();
-                    }, 500);
-                }, 2000);
-            }
-            
-            // Function to create Matrix code rain effect
-            function createMatrixEffect() {
-                // Create a canvas for the matrix effect
-                const canvas = document.createElement('canvas');
-                canvas.id = 'matrix-canvas';
-                canvas.style.position = 'fixed';
-                canvas.style.top = '0';
-                canvas.style.left = '0';
-                canvas.style.width = '100%';
-                canvas.style.height = '100%';
-                canvas.style.pointerEvents = 'none';
-                canvas.style.zIndex = '997';
-                canvas.style.opacity = '0.7';
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-                document.body.appendChild(canvas);
-                
-                const ctx = canvas.getContext('2d');
-                
-                // Matrix characters
-                const characters = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-                const fontSize = 14;
-                const columns = canvas.width / fontSize;
-                
-                // Array to track the y position of each column
-                const drops = [];
-                for (let i = 0; i < columns; i++) {
-                    drops[i] = Math.random() * -100;
-                }
-                
-                // Draw the matrix effect
-                function drawMatrix() {
-                    // Set semi-transparent black background to create trail effect
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    
-                    // Set text color and font
-                    ctx.fillStyle = '#0F0'; // Matrix green
-                    ctx.font = `${fontSize}px monospace`;
-                    
-                    // Draw characters
-                    for (let i = 0; i < drops.length; i++) {
-                        // Get random character
-                        const text = characters.charAt(Math.floor(Math.random() * characters.length));
-                        
-                        // Draw the character
-                        ctx.fillText(text, i * fontSize, drops[i] * fontSize);
-                        
-                        // Move the drop down or reset if it's at the bottom
-                        if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
-                            drops[i] = 0;
-                        }
-                        
-                        drops[i]++;
-                    }
-                }
-                
-                // Animation loop
-                let matrixInterval = setInterval(drawMatrix, 50);
-                
-                // Play glitch sound
-                if (glitchSounds.length > 0) {
-                    const glitchIndex = Math.floor(Math.random() * glitchSounds.length);
-                    glitchSounds[glitchIndex].play(1.5);
-                }
-                
-                // Clean up after a few seconds
-                setTimeout(() => {
-                    clearInterval(matrixInterval);
-                    canvas.remove();
-                }, 8000);
-            }
-            
-            // Create the initial lattice
-            createLattice();
-            
-            // Add event listeners for keyboard interactions
-            document.addEventListener('keydown', function(event) {
-                // Check for 'h' key for help/hints
-                if (event.key === 'h' || event.key === 'H') {
-                    showSystemMessage('FIND THE SECRET PATTERNS', '#00FFFF');
-                }
-                
-                // Check for '?' key for system status
-                if (event.key === '?') {
-                    showSystemMessage(`SYSTEM CORRUPTION: ${corruptionLevel}%`, corruptionLevel > 50 ? '#FF0000' : '#00FFFF');
-                }
-                
-                // Check for 'Escape' key to clear corruption
-                if (event.key === 'Escape' && corruptionLevel > 0) {
-                    showSystemMessage('SYSTEM RESTORE INITIATED', '#39FF14');
-                    corruptionLevel = 0;
-                }
-            });
-            
-            // Prevent default touch actions on the whole document
-            document.addEventListener('touchstart', function(e) {
-                e.preventDefault();
-            }, { passive: false });
-            
-            // Recreate the lattice when the window is resized
-            let resizeTimeout;
-            window.addEventListener('resize', function() {
-                clearTimeout(resizeTimeout);
-                resizeTimeout = setTimeout(createLattice, 200);
-            });
+        }
+
+        const atomGeo = new THREE.IcosahedronGeometry(1, 2);
+        const atomMat = new THREE.MeshPhysicalMaterial({
+            roughness: 0.1, metalness: 0.3, clearcoat: 1.0, 
+            clearcoatRoughness: 0.1, transmission: 0.5, ior: 1.2
         });
+        
+        const instancedMesh = new THREE.InstancedMesh(atomGeo, atomMat, atomData.length);
+
+        // --- BUG FIX: Safely initialize instanceColor and matrix before setting usage ---
+        const dummyInit = new THREE.Object3D();
+        
+        for (let i = 0; i < atomData.length; i++) {
+            dummyInit.position.copy(atomData[i].stablePos);
+            dummyInit.scale.setScalar(atomData[i].scale);
+            dummyInit.updateMatrix();
+            instancedMesh.setMatrixAt(i, dummyInit.matrix);
+            
+            // This natively allocates the color buffer if it is currently null
+            instancedMesh.setColorAt(i, atomData[i].currentColorObj); 
+        }
+        
+        // Once populated, we can safely set the dynamic buffers optimization flags
+        instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        instancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage); 
+        worldGroup.add(instancedMesh);
+
+        // --- 5. ENZYME COMPLEX (LIGASE PROTEIN) ---
+        const enzymeGroup = new THREE.Group();
+        const enzymeGeo = new THREE.IcosahedronGeometry(1, 2);
+        const enzymeMat = new THREE.MeshPhysicalMaterial({
+            color: 0x00ffee, emissive: 0x003355, emissiveIntensity: 1.5,
+            roughness: 0.1, transmission: 0.9, thickness: 2.0, ior: 1.4, transparent: true, opacity: 0.9
+        });
+
+        const numEnzymeAtoms = 400;
+        const enzymeData = [];
+        const enzymeInstanced = new THREE.InstancedMesh(enzymeGeo, enzymeMat, numEnzymeAtoms);
+        enzymeInstanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        
+        for(let i=0; i<numEnzymeAtoms; i++) {
+            const u = Math.random(), v = Math.random();
+            const theta = u * Math.PI * 1.5 - Math.PI * 0.75;
+            const phi = v * Math.PI * 2;
+            const r1 = 5.5, r2 = 2.5 + Math.random() * 1.8; 
+            
+            const pos = new THREE.Vector3(
+                (r1 + r2 * Math.cos(phi)) * Math.cos(theta),
+                r2 * Math.sin(phi) * 1.5 + (Math.random()-0.5)*3,
+                (r1 + r2 * Math.cos(phi)) * Math.sin(theta)
+            );
+            
+            enzymeData.push({ ox: pos.x, oy: pos.y, oz: pos.z, scale: 0.5 + Math.random()*1.3, speed: Math.random()*2 + 0.5 });
+        }
+        enzymeGroup.add(enzymeInstanced);
+        
+        const enzymeLight = new THREE.PointLight(0x00e5ff, 25, 45);
+        enzymeGroup.add(enzymeLight);
+        worldGroup.add(enzymeGroup);
+
+        // --- 6. BACKGROUND NUCLEOPLASM PARTICLES (BOKEH UPGRADE) ---
+        // Procedural circular texture generation for soft depth-of-field effect
+        function createCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.beginPath();
+            ctx.arc(32, 32, 28, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const dustGeo = new THREE.BufferGeometry();
+        const dustPos = new Float32Array(5000 * 3);
+        const dustColors = new Float32Array(5000 * 3);
+        const dCol1 = new THREE.Color(0x00e5ff), dCol2 = new THREE.Color(0xff00aa);
+
+        for(let i=0; i<5000; i++) {
+            dustPos[i*3] = (Math.random() - 0.5) * 160;
+            dustPos[i*3+1] = (Math.random() - 0.5) * 160;
+            dustPos[i*3+2] = (Math.random() - 0.5) * 160;
+            
+            const isCol1 = Math.random() > 0.5;
+            dustColors[i*3] = isCol1 ? dCol1.r : dCol2.r;
+            dustColors[i*3+1] = isCol1 ? dCol1.g : dCol2.g;
+            dustColors[i*3+2] = isCol1 ? dCol1.b : dCol2.b;
+        }
+        dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+        dustGeo.setAttribute('color', new THREE.BufferAttribute(dustColors, 3));
+        
+        const dustMat = new THREE.PointsMaterial({ 
+            size: 0.35, transparent: true, opacity: 0.35, vertexColors: true, 
+            blending: THREE.AdditiveBlending, depthWrite: false, map: createCircleTexture() 
+        });
+        const dust = new THREE.Points(dustGeo, dustMat);
+        scene.add(dust);
+
+        // --- 7. ANIMATION PHYSICS & STATE MACHINE ---
+        const clock = new THREE.Clock();
+        const dummy = new THREE.Object3D();
+        
+        const colorRed = new THREE.Color(0xff0055);
+        const colorWhite = new THREE.Color(0xffffff);
+        const tempColor = new THREE.Color();
+        const tempColor2 = new THREE.Color(); // Used to prevent Lerp overwriting itself in loop
+        const tempNoise = new THREE.Vector3();
+
+        const uiStatus = document.getElementById('status-text');
+        const uiProgress = document.getElementById('progress-bar');
+        const uiLog = document.getElementById('log-text');
+
+        // Initial Loading Sequence
+        setTimeout(() => {
+            const loader = document.getElementById('loader');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => loader.remove(), 1000);
+            }
+            document.getElementById('hud-layer').style.opacity = '1';
+        }, 1200);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+            const t = time % 26; 
+
+            // --- Phase Calculations ---
+            let phase = '';
+            let targetBloom = 1.8;
+            let targetEnzymeY = 60; 
+            let progress = 0;
+
+            if (t < 0.1) enzymeGroup.position.y = 60; 
+
+            if (t < 4) {
+                phase = 'intact'; targetEnzymeY = 60;
+                uiStatus.innerText = "SYSTEM NOMINAL"; uiStatus.className = "status-ok";
+                uiLog.innerText = "Monitoring genomic integrity. Double helix supercoiling structure is stable. Hydrogen bonds intact.";
+                uiLog.classList.remove('glitch-active');
+            } else if (t < 5) {
+                phase = 'strike'; targetEnzymeY = 60; targetBloom = 4.0;
+                uiStatus.innerText = "RADIATION DETECTED"; uiStatus.className = "status-warn";
+                uiLog.innerText = "WARNING: High-energy ionizing radiation detected. Cleaving phosphodiester backbone.";
+                uiLog.classList.add('glitch-active');
+                flashLight.intensity = Math.max(0, 250 * (1 - (t - 4)));
+                flashLight.color.setHex(0xff0055);
+            } else if (t < 10) {
+                phase = 'broken'; targetEnzymeY = 60; targetBloom = 2.0 + Math.sin(time * 12) * 0.5;
+                uiStatus.innerText = "DOUBLE STRAND BREAK"; uiStatus.className = "status-warn";
+                uiLog.innerText = "CRITICAL: Double-strand break confirmed. Chromatin destabilization imminent. Deploying repair pathways.";
+                uiLog.classList.remove('glitch-active');
+            } else if (t < 14) {
+                phase = 'approaching'; targetEnzymeY = 0;
+                uiStatus.innerText = "DEPLOYING LIGASE"; uiStatus.className = "status-repair";
+                uiLog.innerText = "Ku heterodimer and repair complex mobilizing to tether and stabilize broken DNA ends.";
+                progress = ((t - 10) / 4) * 20;
+            } else if (t < 20) {
+                phase = 'repairing'; targetEnzymeY = 0; targetBloom = 2.5;
+                uiStatus.innerText = "SYNTHESIS ACTIVE"; uiStatus.className = "status-repair";
+                uiLog.innerText = "DNA Ligase IV actively synthesizing missing nucleotides and realigning the backbone geometry.";
+                progress = 20 + ((t - 14) / 6) * 80;
+            } else if (t < 22) {
+                phase = 'ligation'; targetEnzymeY = 0; targetBloom = 4.5;
+                uiStatus.innerText = "LIGATION COMPLETE"; uiStatus.className = "status-ok";
+                uiLog.innerText = "Phosphodiester backbone permanently sealed. Genomic fusion successful.";
+                flashLight.intensity = Math.max(0, 200 * (1 - (t - 20) / 2));
+                flashLight.color.setHex(0x00ffcc);
+                progress = 100;
+            } else {
+                phase = 'departing'; targetEnzymeY = -60;
+                uiStatus.innerText = "INTEGRITY RESTORED"; uiStatus.className = "status-ok";
+                uiLog.innerText = "Repair machinery dissociating. Genomic sequence preserved. Resuming standard cell cycle.";
+                progress = 100;
+            }
+
+            bloomPass.strength += (targetBloom - bloomPass.strength) * 0.1;
+            uiProgress.style.width = Math.max(0, Math.min(100, progress)) + '%';
+
+            // Enzyme Threading Down the Helix
+            enzymeGroup.position.y += (targetEnzymeY - enzymeGroup.position.y) * 0.05;
+            enzymeGroup.rotation.y = (enzymeGroup.position.y / pitch) * twist;
+
+            if (phase === 'repairing' || phase === 'ligation') {
+                enzymeLight.intensity = 30 + Math.sin(time * 20) * 8;
+                enzymeLight.color.setHex(0xffaa00);
+                enzymeMat.color.lerp(tempColor.setHex(0xffaa00), 0.08);
+                enzymeMat.emissive.lerp(tempColor.setHex(0x663300), 0.08);
+            } else {
+                enzymeLight.intensity = 20 + Math.sin(time * 4) * 3;
+                enzymeLight.color.setHex(0x00e5ff);
+                enzymeMat.color.lerp(tempColor.setHex(0x00ffee), 0.08);
+                enzymeMat.emissive.lerp(tempColor.setHex(0x003355), 0.08);
+            }
+
+            for(let i=0; i<numEnzymeAtoms; i++) {
+                const ed = enzymeData[i];
+                dummy.position.set(
+                    ed.ox + Math.sin(time * ed.speed + i) * 0.5,
+                    ed.oy + Math.cos(time * ed.speed + i) * 0.5,
+                    ed.oz + Math.sin(time * ed.speed * 0.8 + i) * 0.5
+                );
+                dummy.scale.setScalar(ed.scale);
+                dummy.updateMatrix();
+                enzymeInstanced.setMatrixAt(i, dummy.matrix);
+            }
+            enzymeInstanced.instanceMatrix.needsUpdate = true;
+
+            // --- DNA Spring Physics ---
+            for (let i = 0; i < atomData.length; i++) {
+                const a = atomData[i];
+                let targetPos = a.stablePos;
+                tempColor.setHex(a.color); // Safe reset per loop iter
+
+                if (a.isDamaged) {
+                    if (phase === 'strike' || phase === 'broken' || phase === 'approaching') {
+                        targetPos = a.brokenPos;
+                        tempColor.setHex(0xff0055);
+                    } else if (phase === 'repairing') {
+                        let repairLerp = (progress - 20) / 80;
+                        repairLerp = Math.max(0, Math.min(1, repairLerp)); // Safety Clamp
+                        repairLerp = repairLerp * repairLerp * (3 - 2 * repairLerp); 
+                        
+                        targetPos = a.tempTarget.copy(a.brokenPos).lerp(a.stablePos, repairLerp);
+                        tempColor.copy(colorRed).lerp(tempColor2.setHex(a.color), repairLerp);
+                    }
+                }
+
+                if (phase !== 'repairing' || !a.isDamaged) {
+                    if (a.isBackbone) {
+                        let pulse = (Math.sin(time * 3 + a.rung * 0.15) + 1) * 0.18; 
+                        tempColor.lerp(colorWhite, pulse);
+                    }
+                }
+                
+                a.currentColorObj.lerp(tempColor, 0.12);
+
+                tempNoise.set(Math.sin(time*2.5 + i)*0.2, Math.cos(time*2.5 + i)*0.2, Math.sin(time*2.5 + i*2)*0.2);
+                let fX = targetPos.x + tempNoise.x;
+                let fY = targetPos.y + tempNoise.y;
+                let fZ = targetPos.z + tempNoise.z;
+
+                if (a.isDamaged && (phase === 'broken' || phase === 'approaching')) {
+                    fX += Math.sin(time*2 + i) * 3;
+                    fY += Math.cos(time*2 + i) * 3;
+                    fZ += Math.sin(time*2 + i*2) * 3;
+                }
+
+                let vX = (fX - a.currentPos.x) * 0.08;
+                let vY = (fY - a.currentPos.y) * 0.08;
+                let vZ = (fZ - a.currentPos.z) * 0.08;
+                
+                if (phase === 'strike' && a.isDamaged) { vX *= 7.0; vY *= 7.0; vZ *= 7.0; } 
+                
+                a.velocity.x += vX; a.velocity.y += vY; a.velocity.z += vZ;
+                a.velocity.multiplyScalar(0.78); 
+                a.currentPos.add(a.velocity);
+                
+                dummy.position.copy(a.currentPos);
+                dummy.scale.setScalar(a.scale);
+                dummy.updateMatrix();
+                
+                instancedMesh.setMatrixAt(i, dummy.matrix);
+                instancedMesh.setColorAt(i, a.currentColorObj);
+            }
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            instancedMesh.instanceColor.needsUpdate = true;
+
+            worldGroup.rotation.y = time * 0.12;
+            worldGroup.position.y = Math.sin(time * 0.6) * 1.8;
+            dust.rotation.y = time * 0.03;
+
+            let currentDist = camera.position.distanceTo(controls.target);
+            let targetDist = 42;
+            if (phase === 'broken' || phase === 'approaching') targetDist = 30;
+            if (phase === 'repairing' || phase === 'ligation') targetDist = 22;
+            
+            let distDiff = (targetDist - currentDist) * 0.04;
+            let dir = camera.position.clone().sub(controls.target).normalize();
+            camera.position.add(dir.multiplyScalar(distDiff));
+
+            let targetCamY = (phase === 'approaching' || phase === 'departing') ? enzymeGroup.position.y * 0.3 : 0;
+            controls.target.y += (targetCamY - controls.target.y) * 0.06;
+
+            controls.update();
+            composer.render();
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
     </script>
 </body>
 </html>
