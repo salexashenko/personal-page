@@ -1,12 +1,14 @@
 // WGSL for the zeta landscape. Grid constants live here so the shaders and
 // the JavaScript that drives them cannot drift apart.
 
+import { T_RS, SIEGEL_TERMS, siegelTables } from './siegel.js';
+
 export const FW = 512;            // field columns (sigma)
 export const FH = 2048;           // field rows kept in the ring (t)
 export const DT = 1 / 32;         // t step, so the ring holds 64 units of t
 export const MW = FW - 1;         // surface mesh quads across
 export const MH = FH - 1;         // surface mesh quads along
-export const NMAX = 60000;        // most series terms a point may use
+export const NMAX = 1024;         // most series terms a point may use (it never needs more than about 230)
 export const HEIGHT = 0.45;       // world height per unit of log|zeta|
 
 // Columns are spaced finely near the critical line, where everything happens,
@@ -132,17 +134,27 @@ fn fieldAt(sigma: f32, z: f32) -> vec4f {
 `;
 
 // ---------------------------------------------------------------------------
-// Field: zeta and zeta' by Euler–Maclaurin summation, one invocation per point.
+// Field: zeta and zeta', one invocation per point. Low down by Euler–Maclaurin
+// summation, which needs about t/2 terms; from T_RS up by the Riemann–Siegel
+// formula (see siegel.js), which needs sqrt(t / 2 pi).
 // The phases t*ln(n) mod 2pi are prepared in double precision on the CPU for
 // the first row of each batch; the shader only adds a small offset, so single
 // precision holds up at any height.
 // ---------------------------------------------------------------------------
+const SIEGEL_TABLE = siegelTables()
+  .flat()
+  .map((c) => `vec2f(${c.map((x) => (Math.abs(x) < 1e-12 ? 0 : x).toExponential(9)).join(', ')})`)
+  .join(',\n  ');
+
 export const FIELD_WGSL = /* wgsl */ `
 struct FieldU {
-  rowTex: u32, rows: u32, N: u32, pad: u32,
+  rowTex: u32, rows: u32,
+  N: u32,        // how many entries of the table are filled
+  aInt: u32,     // floor(sqrt(tRef/2pi))
   dt: f32, tRef: f32,
-  phiRef: f32,   // tRef ln(tRef/2pi) - tRef, mod 2pi, from the CPU in double precision
+  phiRef: f32,   // tRef ln(tRef/2pi) - tRef, mod 4pi, from the CPU in double precision
   lnTau: f32,    // ln(tRef/2pi)
+  aFrac: f32,    // sqrt(tRef/2pi) - aInt
 };
 @group(0) @binding(0) var<uniform> U: FieldU;
 @group(0) @binding(1) var<storage, read> tbl: array<vec2f>;   // (phase at tRef, ln n)
@@ -158,23 +170,11 @@ ${SIGMA_MAP}
 fn cexp(a: vec2f) -> vec2f { return exp(a.x) * vec2f(cos(a.y), sin(a.y)); }
 fn clog(a: vec2f) -> vec2f { return vec2f(0.5 * log(dot(a, a)), atan2(a.y, a.x)); }
 
-@compute @workgroup_size(64, 1, 1)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  if (gid.x >= ${FW}u || gid.y >= U.rows) { return; }
-  let sigma = sigmaOfCol(f32(gid.x));
-  var dtt = f32(gid.y) * U.dt;
-  // Step off the real axis: the pole and the tail's 1/(s+j) terms live there.
-  if (abs(U.tRef + dtt) < 1.0e-3) { dtt += 2.0e-3; }
-  let t = U.tRef + dtt;
+struct Pair { z: vec2f, zp: vec2f };   // zeta and zeta'
+
+// zeta(sE + i sg t) by Euler–Maclaurin: U.N terms, then the Bernoulli tail.
+fn eulerMaclaurin(sE: f32, sg: f32, t: f32, dtt: f32) -> Pair {
   let N = U.N;
-
-  // Left of the critical strip the terms n^-s dwarf their own sum and single
-  // precision drowns. There we sum zeta(1-s) instead, where the series is
-  // tame, and come back through the functional equation.
-  let mirror = sigma < 0.0;
-  let sg = select(1.0, -1.0, mirror);
-  let sE = select(sigma, 1.0 - sigma, mirror);
-
   var S = vec2f(0.0);
   var Sp = vec2f(0.0);
   for (var n = 1u; n < N; n++) {
@@ -212,67 +212,181 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     P = cmul(cmul(P, a), b) * inv2;
     D += cinv(a) + cinv(b);
   }
+  return Pair(z, zp);
+}
+
+// chi(s) = 2^s pi^(s-1) sin(pi s/2) Gamma(1-s), the factor in zeta(s) = chi(s) zeta(1-s),
+// kept as k e^ln so its size can be held in check, with chi'/chi beside it.
+struct Chi { ln: vec2f, k: vec2f, dlog: vec2f };
+
+// Low down: Lanczos for Gamma(1-s) and its logarithmic derivative.
+fn chiLow(sigma: f32, t: f32) -> Chi {
+  let x = vec2f(1.0 - sigma, -t);
+  var cof = array<f32, 6>(
+    76.18009172947146, -86.50532032941677, 24.01409824083091,
+    -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6);
+  var ser = vec2f(1.000000000190015, 0.0);
+  var dser = vec2f(0.0);
+  for (var q = 0u; q < 6u; q++) {
+    let inv = cinv(x + vec2f(f32(q) + 1.0, 0.0));
+    ser += cof[q] * inv;
+    dser -= cof[q] * cmul(inv, inv);
+  }
+  let w = x + vec2f(5.5, 0.0);
+  let lw = clog(w);
+  let half = vec2f(0.5, 0.0);
+  let lnGamma = cmul(x + half, lw) - w + clog(2.5066282746310005 * cdiv(ser, x));
+  let digamma = lw + cdiv(x + half, w) - vec2f(1.0, 0.0) + cdiv(dser, ser) - cinv(x);
+  // sin(pi s/2) grows like e^(pi|t|/2) and Gamma(1-s) shrinks as fast, so
+  // that factor is moved into the exponent where the two cancel.
+  let a = 1.5707963267948966 * sigma;
+  let b = 1.5707963267948966 * t;
+  let e2 = exp(-2.0 * abs(b));
+  let sn = 0.5 * vec2f(sin(a) * (1.0 + e2), sign(b) * cos(a) * (1.0 - e2));
+  let tb = sign(b) * (1.0 - e2) / (1.0 + e2);
+  let cot = cdiv(vec2f(cos(a), -sin(a) * tb), vec2f(sin(a), cos(a) * tb));
+  let ex = vec2f(sigma * 0.6931471805599453 + (sigma - 1.0) * 1.1447298858494002 + abs(b), t * 1.8378770664093453) + lnGamma;
+  return Chi(ex, sn, vec2f(1.8378770664093453, 0.0) + 1.5707963267948966 * cot - digamma);
+}
+
+// t ln(t/2pi) - t mod 4pi: enormous, so it arrives from the CPU already
+// reduced at the first row of the batch and is carried up from there.
+fn bigPhase(dtt: f32) -> f32 {
+  let r = dtt / U.tRef;
+  return U.phiRef + dtt * (U.lnTau + r * (0.5 - r * (0.16666667 - r * 0.083333333)));
+}
+
+// High up (t > 200): Stirling's series for log chi.
+fn chiHigh(sigma: f32, t: f32, dtt: f32) -> Chi {
+  let u = 1.0 - sigma;
+  let alpha = atan(u / t);
+  let xx = (u / t) * (u / t);
+  let eps = 0.5 * xx * (1.0 - 0.5 * xx);            // ln|1-s| - ln t
+  let lnt = log(t);
+  let zinv = cinv(vec2f(u, -t));                     // 1/(1-s)
+  let re = (0.5 - sigma) * (lnt + eps) + t * alpha
+    + sigma * 0.6931471805599453 + (sigma - 1.0) * 1.1447298858494002
+    - 0.6931471805599453 - 1.0 + sigma + 0.9189385332046727 + zinv.x / 12.0;
+  let im = -bigPhase(dtt) - t * eps + (0.5 - sigma) * (alpha - 1.5707963267948966)
+    + 1.5707963267948966 * (1.0 - sigma) + zinv.y / 12.0;
+  return Chi(vec2f(re, im), vec2f(1.0, 0.0), vec2f(1.8378770664093453 - lnt - eps, -alpha) + 0.5 * zinv + cmul(zinv, zinv) / 12.0);
+}
+
+// The six moments the Riemann–Siegel remainder is built from, as Chebyshev
+// series in x = a - floor(a). Each already carries its constant: in order,
+// M0, M1, M2, -(2 pi i/3) M3, i pi M4, -(2 pi^2/9) M6.
+const SIEGEL = array<vec2f, ${6 * SIEGEL_TERMS}>(
+  ${SIEGEL_TABLE});
+fn moment(m: u32, y: f32) -> vec2f {
+  let base = m * ${SIEGEL_TERMS}u;
+  var b1 = vec2f(0.0);
+  var b2 = vec2f(0.0);
+  for (var k = ${SIEGEL_TERMS - 1}u; k >= 1u; k--) {
+    let b0 = SIEGEL[base + k] + 2.0 * y * b1 - b2;
+    b2 = b1;
+    b1 = b0;
+  }
+  return SIEGEL[base] + y * b1 - b2;
+}
+
+// zeta(sigma + i t) by Riemann–Siegel, for sigma >= 0:
+//   zeta(s) = R(s) + chi(s) conj(R(1 - conj s)),
+//   R(s) = sum_{n <= N} n^-s + (-1)^N a^-s e^(i pi a^2) (c0 + c1/a + c2/a^2).
+// The second R is carried already multiplied by |chi|, which is tiny when
+// sigma is large, so that nothing overflows on the way.
+fn siegel(sigma: f32, t: f32, dtt: f32) -> Pair {
+  // a = sqrt(t/2pi) = aRef sqrt(1 + x), grown from the CPU's value so its fractional part keeps its digits.
+  let x = dtt / U.tRef;
+  let grown = U.aFrac + (f32(U.aInt) + U.aFrac) * x / (1.0 + sqrt(1.0 + x));
+  let N = min(U.aInt + u32(grown), U.N);
+  let frac = fract(grown);
+  let a = f32(N) + frac;
+  let lna = log(a);
+  let ia = 1.0 / a;
+  let chi = chiHigh(sigma, t, dtt);
+  let tau = 1.0 - sigma;
+
+  var A = vec2f(0.0);    // R(s)
+  var Ap = vec2f(0.0);   // R'(s)
+  var B = vec2f(0.0);    // |chi| R(1 - conj s)
+  var Bp = vec2f(0.0);   // |chi| R'(1 - conj s)
+  for (var n = 1u; n <= N; n++) {
+    let e = tbl[n];
+    let th = e.x + dtt * e.y;
+    let w = vec2f(cos(th), -sin(th));
+    let ta = exp(-sigma * e.y) * w;
+    let tb = exp(chi.ln.x - tau * e.y) * w;
+    A += ta;
+    Ap -= e.y * ta;
+    B += tb;
+    Bp -= e.y * tb;
+  }
+
+  let y = 2.0 * frac - 1.0;
+  let m0 = moment(0u, y);
+  let m1 = moment(1u, y);
+  let m2 = moment(2u, y);
+  let m3 = moment(3u, y);
+  let m4 = moment(4u, y);
+  let m6 = moment(5u, y);
+  // pi a^2 - t ln a is minus half the big phase.
+  let psi = -0.5 * bigPhase(dtt);
+  let turn = select(1.0, -1.0, (N & 1u) == 1u) * vec2f(cos(psi), sin(psi));
+
+  let ca = m0 + ia * (m3 - sigma * m1 + ia * (0.5 * sigma * (sigma + 1.0) * m2 + (0.5 + sigma / 1.5) * m4 + m6));
+  let da = ia * (-m1 + ia * ((sigma + 0.5) * m2 + m4 / 1.5));      // d ca / d sigma
+  let pa = exp(-sigma * lna) * turn;
+  let Ia = cmul(pa, ca);
+  A += Ia;
+  Ap += cmul(pa, da) - lna * Ia;
+
+  let cb = m0 + ia * (m3 - tau * m1 + ia * (0.5 * tau * (tau + 1.0) * m2 + (0.5 + tau / 1.5) * m4 + m6));
+  let db = ia * (-m1 + ia * ((tau + 0.5) * m2 + m4 / 1.5));
+  let pb = exp(chi.ln.x - tau * lna) * turn;
+  let Ib = cmul(pb, cb);
+  B += Ib;
+  Bp += cmul(pb, db) - lna * Ib;
+
+  let rot = vec2f(cos(chi.ln.y), sin(chi.ln.y));
+  let Bc = vec2f(B.x, -B.y);
+  let Bpc = vec2f(Bp.x, -Bp.y);
+  return Pair(A + cmul(rot, Bc), Ap + cmul(rot, cmul(chi.dlog, Bc) - Bpc));
+}
+
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  if (gid.x >= ${FW}u || gid.y >= U.rows) { return; }
+  let sigma = sigmaOfCol(f32(gid.x));
+  var dtt = f32(gid.y) * U.dt;
+  // Step off the real axis: the pole and the tail's 1/(s+j) terms live there.
+  if (abs(U.tRef + dtt) < 1.0e-3) { dtt += 2.0e-3; }
+  let t = U.tRef + dtt;
+
+  // Left of the critical strip the terms n^-s dwarf their own sum and single
+  // precision drowns. There we sum zeta(1-s) instead, where the series is
+  // tame, and come back through the functional equation.
+  let mirror = sigma < 0.0;
+  let sE = select(sigma, 1.0 - sigma, mirror);
+
+  var p: Pair;
+  if (t >= ${T_RS}.0) {
+    p = siegel(sE, t, dtt);
+    if (mirror) { p = Pair(vec2f(p.z.x, -p.z.y), vec2f(p.zp.x, -p.zp.y)); }
+  } else {
+    p = eulerMaclaurin(sE, select(1.0, -1.0, mirror), t, dtt);
+  }
 
   if (mirror) {
-    // zeta(s) = chi(s) zeta(1-s),  chi(s) = 2^s pi^(s-1) sin(pi s/2) Gamma(1-s).
     // Far up the left wall zeta outgrows single precision; only its phase and
     // the fact that it is huge matter there, so |chi| is held at e^60.
-    var chi: vec2f;
-    var dlog: vec2f;   // chi'/chi
-    if (t < 200.0) {
-      // Lanczos for Gamma(1-s) and its logarithmic derivative.
-      let x = vec2f(1.0 - sigma, -t);
-      var cof = array<f32, 6>(
-        76.18009172947146, -86.50532032941677, 24.01409824083091,
-        -1.231739572450155, 1.208650973866179e-3, -5.395239384953e-6);
-      var ser = vec2f(1.000000000190015, 0.0);
-      var dser = vec2f(0.0);
-      for (var q = 0u; q < 6u; q++) {
-        let inv = cinv(x + vec2f(f32(q) + 1.0, 0.0));
-        ser += cof[q] * inv;
-        dser -= cof[q] * cmul(inv, inv);
-      }
-      let w = x + vec2f(5.5, 0.0);
-      let lw = clog(w);
-      let half = vec2f(0.5, 0.0);
-      let lnGamma = cmul(x + half, lw) - w + clog(2.5066282746310005 * cdiv(ser, x));
-      let digamma = lw + cdiv(x + half, w) - vec2f(1.0, 0.0) + cdiv(dser, ser) - cinv(x);
-      // sin(pi s/2) grows like e^(pi|t|/2) and Gamma(1-s) shrinks as fast, so
-      // that factor is moved into the exponent where the two cancel.
-      let a = 1.5707963267948966 * sigma;
-      let b = 1.5707963267948966 * t;
-      let e2 = exp(-2.0 * abs(b));
-      let sn = 0.5 * vec2f(sin(a) * (1.0 + e2), sign(b) * cos(a) * (1.0 - e2));
-      let tb = sign(b) * (1.0 - e2) / (1.0 + e2);
-      let cot = cdiv(vec2f(cos(a), -sin(a) * tb), vec2f(sin(a), cos(a) * tb));
-      let ex = vec2f(sigma * 0.6931471805599453 + (sigma - 1.0) * 1.1447298858494002 + abs(b), t * 1.8378770664093453) + lnGamma;
-      chi = cmul(cexp(vec2f(min(ex.x, 60.0), ex.y)), sn);
-      dlog = vec2f(1.8378770664093453, 0.0) + 1.5707963267948966 * cot - digamma;
-    } else {
-      // High up, Stirling's series for log chi. Its one enormous term, the
-      // phase t ln(t/2pi) - t, arrives from the CPU already reduced mod 2pi.
-      let u = 1.0 - sigma;
-      let alpha = atan(u / t);
-      let xx = (u / t) * (u / t);
-      let eps = 0.5 * xx * (1.0 - 0.5 * xx);            // ln|1-s| - ln t
-      let lnt = log(t);
-      let zinv = cinv(vec2f(u, -t));                     // 1/(1-s)
-      let re = (0.5 - sigma) * (lnt + eps) + t * alpha
-        + sigma * 0.6931471805599453 + (sigma - 1.0) * 1.1447298858494002
-        - 0.6931471805599453 - 1.0 + sigma + 0.9189385332046727 + zinv.x / 12.0;
-      let phi = U.phiRef + dtt * U.lnTau + dtt * dtt / (2.0 * U.tRef) - dtt * dtt * dtt / (6.0 * U.tRef * U.tRef);
-      let im = -phi - t * eps + (0.5 - sigma) * (alpha - 1.5707963267948966)
-        + 1.5707963267948966 * (1.0 - sigma) + zinv.y / 12.0;
-      chi = cexp(vec2f(min(re, 60.0), im));
-      dlog = vec2f(1.8378770664093453 - lnt - eps, -alpha) + 0.5 * zinv + cmul(zinv, zinv) / 12.0;
-    }
-    let z1 = z;
-    z = cmul(chi, z1);
-    zp = cmul(chi, cmul(dlog, z1) - zp);
+    var c: Chi;
+    if (t < 200.0) { c = chiLow(sigma, t); } else { c = chiHigh(sigma, t, dtt); }
+    let chi = cmul(cexp(vec2f(min(c.ln.x, 60.0), c.ln.y)), c.k);
+    p = Pair(cmul(chi, p.z), cmul(chi, cmul(c.dlog, p.z) - p.zp));
   }
 
   let row = (U.rowTex + gid.y) % ${FH}u;
-  textureStore(field, vec2u(gid.x, row), vec4f(z, zp));
+  textureStore(field, vec2u(gid.x, row), vec4f(p.z, p.zp));
 }
 `;
 

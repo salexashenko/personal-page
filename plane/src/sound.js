@@ -15,10 +15,11 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const fold = (line) => { const m = ((line % 12) + 12) % 12; return m <= 6 ? m : 12 - m; };
 
 const MAX_VOICES = 44;
+const MAX_BELLS = 10;           // bells ring for ten seconds; more than this at once is only mud
 
 export function createSound() {
   let ctx = null, master = null, dry = null, wet = null, echo = null;
-  let muted = false, voices = 0, colour = [], colourNow = -1, meter = null;
+  let muted = false, voices = 0, bells = 0, colour = [], colourNow = -1, meter = null;
 
   /** A few seconds of decaying noise: the room everything is heard in. */
   function room(seconds) {
@@ -121,15 +122,20 @@ export function createSound() {
     colour.forEach((g, i) => g.gain.setTargetAtTime(i === want ? 0.014 : 0.0001, ctx.currentTime, 2.5));
   }
 
-  /** One sounding thing: its own pan, some of it into the room, some into the echo. */
+  /**
+   * One sounding thing: its own pan, some of it into the room, some into the echo.
+   * `free` takes it apart again once it has gone quiet, so a long visit leaves nothing behind.
+   */
   function out(pan, level, room, echoes) {
     const p = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain();
     if (p.pan) p.pan.value = clamp(pan, -1, 1) * 0.85;
     const g = ctx.createGain(); g.gain.value = level;
     p.connect(g);
     g.connect(dry);
-    const s = ctx.createGain(); s.gain.value = room; g.connect(s).connect(wet);
-    if (echoes > 0) { const e = ctx.createGain(); e.gain.value = echoes; g.connect(e).connect(echo); }
+    const made = [p, g];
+    const s = ctx.createGain(); s.gain.value = room; g.connect(s).connect(wet); made.push(s);
+    if (echoes > 0) { const e = ctx.createGain(); e.gain.value = echoes; g.connect(e).connect(echo); made.push(e); }
+    p.free = () => made.forEach((n) => n.disconnect());
     return p;
   }
 
@@ -143,14 +149,18 @@ export function createSound() {
     o.connect(g).connect(dest);
     o.start(when);
     o.stop(when + attack + decay * 1.6);
+    o.addEventListener('ended', () => g.disconnect());
     return o;
   }
 
-  function claim(seconds) {
+  /** Room for one more voice? If so it is counted until `finish` sees its longest partial end. */
+  function claim() {
     if (!ctx || ctx.state !== 'running' || voices >= MAX_VOICES) return false;
     voices++;
-    setTimeout(() => { voices--; }, seconds * 1000);
     return true;
+  }
+  function finish(longest, dest, then) {
+    longest.addEventListener('ended', () => { dest.free(); then(); });
   }
 
   /**
@@ -163,34 +173,36 @@ export function createSound() {
     const n = clamp(5 + fold(line) + clamp(-band, -5, 6) + [0, 0, 5, -5][register % 4], -5, 18);
     const f = note(n);
     const decay = clamp(1.5 * Math.pow(220 / f, 0.45), 0.3, 2.2);
-    if (!claim(decay)) return;
+    if (!claim()) return;
     const when = ctx.currentTime + 0.025 + after;
     const hard = clamp(0.35 + speed / 4, 0.35, 1);
     const level = 0.2 * hard * (0.25 + 0.75 * near) * Math.pow(330 / Math.max(f, 330), 0.5);
     const dest = out(pan, level, 0.5 + 0.4 * (1 - near), 0.22);
-    partial(dest, f, when, 1, decay);
+    finish(partial(dest, f, when, 1, decay), dest, () => { voices--; });
     partial(dest, f * 2.004, when, 0.3 * hard, decay * 0.4);
     partial(dest, f * 5.4, when, 0.1 * hard, 0.06, 0.002);   // the tick of the tine
   }
 
   /** A ball landing: a drop of water, in tune. */
   function plip({ line, band, pan, near, after = 0 }) {
-    if (!claim(0.5)) return;
+    if (!claim()) return;
     const f = note(clamp(10 + fold(line) + clamp(-band, -3, 3), 5, 18));
     const when = ctx.currentTime + 0.02 + after;
     const dest = out(pan, 0.09 * (0.3 + 0.7 * near), 0.8, 0.3);
     const o = partial(dest, f, when, 1, 0.28, 0.003);
+    finish(o, dest, () => { voices--; });
     o.frequency.setValueAtTime(f * 0.62, when);
     o.frequency.exponentialRampToValueAtTime(f, when + 0.055);
   }
 
   /** A zero taking a ball. gamma: the zero's height on the line, which picks its bell. */
   function bell({ gamma, pan, near }) {
-    if (!ctx || ctx.state !== 'running') return;
+    if (!ctx || ctx.state !== 'running' || bells >= MAX_BELLS) return;
+    bells++;
     const f = note(-4 + (Math.floor(Math.abs(gamma)) % 7));
     const when = ctx.currentTime + 0.03;
     const dest = out(pan * 0.6, 0.2 * (0.35 + 0.65 * near), 1.1, 0.15);
-    partial(dest, f, when, 1, 6.5, 0.012);
+    finish(partial(dest, f, when, 1, 6.5, 0.012), dest, () => { bells--; });
     partial(dest, f * 2.0, when, 0.45, 4.5, 0.01);
     partial(dest, f * 2.76, when, 0.3, 3.2, 0.008);
     partial(dest, f * 5.4, when, 0.12, 1.4, 0.004);
@@ -213,6 +225,7 @@ export function createSound() {
     start, place, pluck, plip, bell, toggle,
     get running() { return !!ctx && ctx.state === 'running'; },
     get voices() { return voices; },
+    get bells() { return bells; },
     /** Peak of what is going out right now, 0..1, for checking levels. */
     peak() {
       if (!meter) return 0;
