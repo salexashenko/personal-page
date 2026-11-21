@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The critical line</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --ink: #020308;
+    --bone: #ece7da;
+    --gold: #f4c979;
+    --serif: "STIX Two Text", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  html, body { height: 100%; margin: 0; background: var(--ink); overflow: hidden; }
+  body { font-family: var(--serif); color: var(--bone); -webkit-font-smoothing: antialiased; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+
+  /* The only words on the picture: where the ball you last dropped is now. */
+  #placard {
+    position: fixed; left: 32px; bottom: 26px; margin: 0;
+    font-size: 17px; letter-spacing: 0.01em;
+    font-variant-numeric: lining-nums tabular-nums;
+    color: rgba(236, 231, 218, 0.5);
+    pointer-events: none; user-select: none;
+    opacity: 0; transition: opacity 3s ease 1.5s;
+  }
+  #placard.on { opacity: 1; }
+  #placard span { color: rgba(244, 201, 121, 0.82); }
+
+  #hint {
+    position: fixed; right: 32px; bottom: 26px; margin: 0;
+    font-size: 15px; font-style: italic; color: rgba(236, 231, 218, 0.45);
+    pointer-events: none; user-select: none;
+    opacity: 0; transition: opacity 2.5s ease;
+  }
+  #hint.on { opacity: 1; }
+
+  #unsupported { position: fixed; inset: 0; display: grid; place-content: center; padding: 32px; background: var(--ink); }
+  #unsupported[hidden] { display: none; }
+  #unsupported div { max-width: 30rem; font-size: 17px; line-height: 1.5; }
+  #unsupported h1 { font-weight: 400; font-size: 30px; margin: 0 0 10px; }
+  #unsupported p { margin: 0; color: rgba(236, 231, 218, 0.7); }
+
+  @media (max-width: 600px) {
+    #placard { left: 18px; bottom: 16px; font-size: 15px; }
+    #hint { left: 18px; right: 18px; bottom: 44px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="A dark landscape whose height is the size of the Riemann zeta function. Light flows downhill into its zeros, which lie in a row along one golden line. Balls dropped on it roll downhill and circle the zeros before falling in."></canvas>
+
+<p id="placard"><i>ζ</i>(<span id="s">0.50</span> + <span id="t">0.00</span> <i>i</i>)</p>
+<p id="hint">Click to drop a ball and hear it. Hold and move to pour them. Scroll to travel. M for silence.</p>
+
+<div id="unsupported" hidden>
+  <div>
+    <h1>This needs WebGPU</h1>
+    <p id="why"></p>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
