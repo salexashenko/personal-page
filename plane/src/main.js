@@ -1,5 +1,5 @@
 import {
-  FW, FH, DT, MW, MH, NMAX, HEIGHT, NB, TRAIL, sigmaOfCol,
+  FW, FH, DT, MW, MH, NMAX, HEIGHT, NB, TRAIL, sigmaOfCol, colOfSigma, landHeight,
   FIELD_WGSL, SIM_WGSL, SURFACE_WGSL, BALLS_WGSL, BALL_DRAW_WGSL, PARTICLE_WGSL, POST_WGSL,
 } from './shaders.js';
 import { termsFor, zeta } from './zeta.js';
@@ -16,6 +16,8 @@ const HITS = 8;                 // landing rings alive at once
 const DROP = 2.4;               // height a ball falls from
 const POUR_EVERY = 0.13;        // seconds between balls while the button is held
 const NEAR = 0.05, FAR = 240;
+const EYE_MIN = 1.3;            // the eye never comes lower than this,
+const EYE_CLEAR = 0.5;          // nor nearer than this to the land beneath it
 const FOV = (50 * Math.PI) / 180;
 
 // Heights worth visiting, on keys 1 to 5: the first zeros, a stretch further
@@ -36,8 +38,22 @@ const look = { gain: 0.17, gridGain: 1.0, exposure: 1.15, bloom: 0.6, streak: 6.
 // The camera looks at the point 1/2 + i t on the line from `dist` away,
 // turned `yaw` from straight up the line and tipped `pitch` down.
 // `want` is where it is going, `view` where it is; one eases toward the other.
+const PITCH_MIN = 0.16, PITCH_MAX = Math.PI / 2;    // skimming the land; straight down on it
 const want = { t: PLACES[0], dist: 13, yaw: 0, pitch: 0.62 };
 const view = { ...want };
+let perch = { yaw: 0, pitch: 0.62 };                // the view B comes back down to
+
+/** B: go straight up over the line, squared to it like a map (sigma across, t up); again, come back down. */
+function birdsEye() {
+  if (want.pitch < PITCH_MAX - 0.02) {
+    perch = { yaw: want.yaw, pitch: want.pitch };
+    want.pitch = PITCH_MAX;
+    want.yaw = Math.round(want.yaw / TWO_PI) * TWO_PI;
+  } else {
+    want.pitch = perch.pitch;
+    want.yaw = perch.yaw + Math.round((want.yaw - perch.yaw) / TWO_PI) * TWO_PI;   // the short way round
+  }
+}
 
 const keys = new Set();
 let hits = [];                  // landing rings: { s, t, born, strength, turn }
@@ -67,10 +83,11 @@ function perspective(fovY, aspect, near, far) {
 }
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
-/** View matrix and camera basis for an eye looking along `f`. */
-function viewFrom(eye, f) {
-  const r = norm(cross([0, 1, 0], f));
+/**
+ * View matrix and camera basis for an eye looking along `f` with `r` to its right.
+ * The right is passed in, not found from `f`, so that looking straight down is no special case.
+ */
+function viewFrom(eye, f, r) {
   const u = cross(f, r);
   const m = new Float32Array(16);
   m[0] = r[0]; m[4] = r[1]; m[8] = r[2]; m[12] = -dot3(r, eye);
@@ -514,6 +531,36 @@ async function start() {
     if (caughtUp) { was.sector = sector; was.crossed = crossed; was.at = time; }
   }
 
+  // The eye is kept above the land, and only the GPU knows how high the land
+  // is. So each frame the corners of the mesh cell under the eye are read back,
+  // and the next frames hold the eye clear of the highest of them. The answer
+  // comes a few frames late, so the cell the eye is heading for is read as well.
+  let landUnderEye = 0;
+  let eyeWas = null;                        // sigma and t of the eye a frame ago
+  let eyeY = 0;
+  const probes = [];                        // read-back buffers not in use
+  function probeLand(enc, s, t) {
+    if (validHi - validLo < 2) return () => {};
+    const ahead = eyeWas ? [s + (s - eyeWas[0]) * 4, t + (t - eyeWas[1]) * 4] : [s, t];
+    eyeWas = [s, t];
+    const buf = probes.pop() ?? device.createBuffer({ size: 128, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    [[s, t], ahead].forEach(([ps, pt], n) => {
+      const col = clamp(Math.floor(colOfSigma(ps)), 0, FW - 2);
+      const row = clamp(Math.floor(pt / DT), validLo, validHi - 2);
+      for (let k = 0; k < 2; k++) {
+        enc.copyTextureToBuffer({ texture: fieldTex, origin: [col, mod(row + k, FH)] }, { buffer: buf, offset: (n * 2 + k) * 32 }, [2, 1]);
+      }
+    });
+    return () => buf.mapAsync(GPUMapMode.READ).then(() => {
+      const F = new Float32Array(buf.getMappedRange());
+      let top = -Infinity;
+      for (let k = 0; k < 8; k++) top = Math.max(top, landHeight(F[k * 4], F[k * 4 + 1]));
+      buf.unmap();
+      probes.push(buf);
+      if (Number.isFinite(top)) landUnderEye = top;
+    }).catch(() => {});
+  }
+
   /** Find the point on the land under a pixel, from the distance the frame just drew there, and drop a ball on it. */
   function pick(enc, px, py, cam, origin) {
     const buf = device.createBuffer({ size: 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
@@ -532,8 +579,10 @@ async function start() {
 
   // --- input ---------------------------------------------------------------
   // Left button: drop a ball; keep it down and they keep coming, wherever the
-  // pointer goes. Right button, or shift: turn and tip the view. Wheel: travel
-  // along the line; with ctrl (a pinch on a trackpad), move in and out.
+  // pointer goes. Right button, or shift: turn and tip the view, all the way to
+  // straight down. Wheel: travel along the line; with ctrl (a pinch on a
+  // trackpad), move in and out. R and F tip the view from the keys; B goes to
+  // a bird's eye view and back.
   const pointer = { x: 0, y: 0, pouring: false, turning: false, lastPour: 0 };
   const pixel = (x, y) => {
     const k = W / canvas.clientWidth;
@@ -553,7 +602,7 @@ async function start() {
   canvas.addEventListener('pointermove', (e) => {
     if (pointer.turning) {
       want.yaw += (e.clientX - pointer.x) * 0.005;
-      want.pitch = clamp(want.pitch + (e.clientY - pointer.y) * 0.004, 0.16, 1.45);
+      want.pitch = clamp(want.pitch + (e.clientY - pointer.y) * 0.004, PITCH_MIN, PITCH_MAX);
     }
     pointer.x = e.clientX; pointer.y = e.clientY;
   });
@@ -573,7 +622,10 @@ async function start() {
   window.addEventListener('keydown', (e) => {
     if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
     if (e.code === 'KeyM' && !e.repeat) sound.toggle(); else sound.start();
+    // With cmd or ctrl down the key belongs to the browser, and its keyup may never come.
+    if (e.metaKey || e.ctrlKey) return;
     keys.add(e.code);
+    if (e.code === 'KeyB' && !e.repeat) birdsEye();
     const place = PLACES[parseInt(e.key, 10) - 1];
     if (place !== undefined && !e.repeat) { pendingPlace = place; fadeTarget = 0; }
   });
@@ -603,6 +655,7 @@ async function start() {
     if (pendingPlace !== null && fade <= 0.001) {
       want.t = view.t = pendingPlace;
       hits = []; drops = []; newest = null;
+      landUnderEye = 0; eyeWas = null;
       opening.length = 0;
       pendingPlace = null;
       fadeTarget = 1;
@@ -613,6 +666,7 @@ async function start() {
     const key = (a, b) => (keys.has(a) || keys.has(b) ? 1 : 0);
     want.t = clamp(want.t + (key('ArrowUp', 'KeyW') - key('ArrowDown', 'KeyS')) * dtReal * 0.6 * want.dist, 2, T_MAX - 40);
     want.yaw += (key('ArrowRight', 'KeyD') - key('ArrowLeft', 'KeyA')) * dtReal * 0.9;
+    want.pitch = clamp(want.pitch + (key('KeyR', 'PageUp') - key('KeyF', 'PageDown')) * dtReal * 0.9, PITCH_MIN, PITCH_MAX);
     want.dist = clamp(want.dist * Math.exp((key('Minus', 'KeyQ') - key('Equal', 'KeyE')) * dtReal * 1.2), 3.5, 34);
     const k = ease(dtReal, calm ? 0.05 : 0.22);
     view.t += (want.t - view.t) * k;
@@ -633,8 +687,8 @@ async function start() {
     const zFocus = view.t - originRow * DT;
     const cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
     const f = [Math.sin(view.yaw) * cp, -sp, Math.cos(view.yaw) * cp];
-    const eye = [0.5 - f[0] * view.dist, Math.max(-f[1] * view.dist, 1.3), zFocus - f[2] * view.dist];
-    const cam = viewFrom(eye, f);
+    const eye = [0.5 - f[0] * view.dist, Math.max(-f[1] * view.dist, EYE_MIN, landUnderEye + EYE_CLEAR), zFocus - f[2] * view.dist];
+    const cam = viewFrom(eye, f, [Math.cos(view.yaw), 0, -Math.sin(view.yaw)]);
     const aspect = W / H, tanF = Math.tan(FOV / 2);
     const viewProj = mul(perspective(FOV, aspect, NEAR, FAR), cam.m);
 
@@ -714,6 +768,8 @@ async function start() {
     // Clicks become points on the land by reading the distance just drawn under them.
     const camNow = { eye, r: cam.r, u: cam.u, f: cam.f, tanF, aspect, W, H };
     const after = picks.splice(0, 2).map((p) => pick(enc, p.x, p.y, camNow, originRow));
+    after.push(probeLand(enc, eye[0], eye[2] + originRow * DT));
+    eyeY = eye[1];
 
     const blit = (pipe, bg, target, load) => {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: load ? 'load' : 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
@@ -753,7 +809,7 @@ async function start() {
     click: (x, y) => picks.push(pixel(x, y)),
     clearRings: () => { hits = []; },
     sound,
-    stats: () => ({ notes, voices: sound.voices, sounding: sound.running, fps: fpsEma, validLo, validHi, originRow, W, H, filling, hits: hits.length, balls: slotState.reduce((n, s) => n + (s > 0 ? 1 : 0), 0), newest }),
+    stats: () => ({ notes, voices: sound.voices, sounding: sound.running, fps: fpsEma, validLo, validHi, originRow, W, H, filling, eye: eyeWas && [eyeWas[0], eyeY, eyeWas[1]], land: landUnderEye, hits: hits.length, balls: slotState.reduce((n, s) => n + (s > 0 ? 1 : 0), 0), newest }),
     async check(t) {
       const row = Math.round(t / DT);
       if (row < validLo || row >= validHi) return { error: 'row not computed', validLo, validHi, row };

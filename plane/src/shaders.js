@@ -10,6 +10,8 @@ export const MW = FW - 1;         // surface mesh quads across
 export const MH = FH - 1;         // surface mesh quads along
 export const NMAX = 1024;         // most series terms a point may use (it never needs more than about 230)
 export const HEIGHT = 0.45;       // world height per unit of log|zeta|
+export const EPS2 = 2.5e-5;       // floors log|zeta| near -5.3 so zeros are wells, not holes
+export const LMAX = 7;            // soft ceiling on log|zeta| for the pole and the left-hand wall
 
 // Columns are spaced finely near the critical line, where everything happens,
 // and stretch out toward the sides: sigma = C + A sinh(B x), x in [-1, 1].
@@ -17,6 +19,16 @@ export const HEIGHT = 0.45;       // world height per unit of log|zeta|
 export const SIG_C = 0.5, SIG_A = 2.2, SIG_B = 2.9;
 export function sigmaOfCol(c) {
   return SIG_C + SIG_A * Math.sinh(SIG_B * ((c / (FW - 1)) * 2 - 1));
+}
+
+export function colOfSigma(s) {
+  return (Math.asinh((s - SIG_C) / SIG_A) / SIG_B * 0.5 + 0.5) * (FW - 1);
+}
+/** World height of the land where zeta = re + i im: capL(logMod(jetOf(F))) below, times HEIGHT. */
+export function landHeight(re, im) {
+  const a = Math.max(1, Math.abs(re), Math.abs(im));
+  const L = Math.log(a) + 0.5 * Math.log((re / a) ** 2 + (im / a) ** 2 + EPS2);
+  return HEIGHT * (L > 0 ? LMAX * Math.tanh(L / LMAX) : L);
 }
 
 const SIGMA_MAP = /* wgsl */ `
@@ -32,8 +44,8 @@ const HORIZON = 'vec3f(0.011, 0.010, 0.036)';
 const COMMON = /* wgsl */ `
 const FW: u32 = ${FW}u;
 const FH: u32 = ${FH}u;
-const EPS2: f32 = 2.5e-5;   // floors log|zeta| near -5.3 so zeros are wells, not holes
-const LMAX: f32 = 7.0;      // soft ceiling for the pole and the left-hand wall
+const EPS2: f32 = ${EPS2};
+const LMAX: f32 = f32(${LMAX});
 const PI: f32 = 3.14159265358979;
 
 struct Globals {
